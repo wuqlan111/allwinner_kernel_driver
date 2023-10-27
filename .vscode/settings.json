@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "Kconfig": "kconfig",
+        "pm_runtime.h": "c",
+        "device.h": "c"
+    }
+}
