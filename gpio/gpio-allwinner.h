@@ -1,7 +1,6 @@
 #ifndef  GPIO_ALLWINNER_H6_H
 #define  GPIO_ALLWINNER_H6_H
 
-#include  <stdint.h>
 #include  <linux/bitops.h>
 
 
@@ -22,12 +21,27 @@ typedef enum {
 } allwinner_h6_gpio_pupd_e;
 
 
+typedef enum {
+	ALLWINNER_H6_PINMUX_AF0 = 0,
+	ALLWINNER_H6_PINMUX_AF1,
+	ALLWINNER_H6_PINMUX_AF2,
+	ALLWINNER_H6_PINMUX_AF3,
+	ALLWINNER_H6_PINMUX_AF4,
+	ALLWINNER_H6_PINMUX_AF5,
+	ALLWINNER_H6_PINMUX_AF6,
+	ALLWINNER_H6_PINMUX_AF7,
+	ALLWINNER_H6_PINMUX_MAX_AF  =  ALLWINNER_H6_PINMUX_AF7
+} allwinner_h6_pinmux_af_e;
 
 
+#define  ALLWINNER_H6_PINMUX_INPUT       ALLWINNER_H6_PINMUX_AF0
+#define  ALLWINNER_H6_PINMUX_OUTPUT      ALLWINNER_H6_PINMUX_AF1
+#define  ALLWINNER_H6_PINMUX_DISABLE     ALLWINNER_H6_PINMUX_AF7
 
+#define  ALLWINNNER_H6_PIN_CFG_IDX(offset)      ((offset)>>3)
+#define  ALLWINNNER_H6_PIN_CFG_SHIFT(offset)    (((offset) & 0x7) << 2)
 
-
-
+#define  ALLWINNNER_H6_PIN_CFG_MASK              GENMASK(2, 0)
 
 
 

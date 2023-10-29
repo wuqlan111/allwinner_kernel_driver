@@ -4,6 +4,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/err.h>
 #include <linux/io.h>
+#include <asm-generic/io.h>
 #include <linux/device.h>
 #include <linux/pm_runtime.h>
 #include <linux/pm.h>
@@ -15,6 +16,7 @@
 #include <linux/bitops.h>
 #include <linux/compiler-gcc.h>
 
+#include "gpio-allwinner.h"
 
 #define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 #define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
@@ -22,6 +24,8 @@
 #define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 #define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 
+#define  ALLWINNER_GPIO_CAN_SET_FUNC(pin_func)  ( ( (pin_func) == ALLWINNER_H6_PINMUX_INPUT) ||     \
+            ((pin_func) == ALLWINNER_H6_PINMUX_OUTPUT) || ( (pin_func) == ALLWINNER_H6_PINMUX_DISABLE) )
 
 typedef struct {
     uint32_t  cfgx[4];
@@ -42,23 +46,164 @@ typedef struct {
 typedef struct {
     allwinner_h6_gpio_config_t  *  config_base;
     allwinner_h6_gpio_interrupt_t  *  interrupt_base;
+    raw_spinlock_t lock;
     uint32_t  has_interrupt;
     uint32_t  hw_irq;
     struct  gpio_chip  gpio_chip;
 } allwinner_h6_gpio_plat_t;
 
 
+static int32_t  allwinner_gpio_set_pin_func(allwinner_h6_gpio_config_t * regs, uint32_t offset, uint32_t func)
+{
+    uint32_t  cfg_idx = ALLWINNNER_H6_PIN_CFG_IDX(offset);
+    uint32_t  shift   =  ALLWINNNER_H6_PIN_CFG_SHIFT(offset);
+    uint32_t  ori_cfg  =  readl_relaxed(&regs[cfg_idx]);
+    uint32_t  ori_pinctrl = ( ori_cfg >> shift ) & ALLWINNNER_H6_PIN_CFG_MASK;
+
+    if ( !ALLWINNER_GPIO_CAN_SET_FUNC(ori_pinctrl) ) {
+        _PRINTF_ERROR("gpio offset [%u] has other func [%u]\n", offset, ori_pinctrl);
+        return  -EINVAL;
+    }
+
+    if (!ALLWINNER_GPIO_CAN_SET_FUNC(func)) {
+        _PRINTF_ERROR("gpio can't set target func [%u]\n", func);
+        return  -EINVAL;
+    }
+
+    if (ori_pinctrl == func) {
+        _PRINTF_ERROR("gpio [%u] has been target func [%u]\n", offset, func);
+        return  0;
+    }
+
+    ori_cfg &= ~(ALLWINNNER_H6_PIN_CFG_MASK << shift);
+    ori_cfg |= func << shift;
+    writel_relaxed(ori_cfg,  &regs[cfg_idx]);
+
+    return  0;
+
+}
 
 
 
+// gpio driver function
+static int32_t allwinner_gpio_request(struct gpio_chip *chip, uint32_t offset)
+{
+    int32_t  ret  =  0;
+	allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    ret  =  allwinner_gpio_set_pin_func(regs, offset,  ALLWINNER_H6_PINMUX_INPUT);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+	return  ret;
+}
+
+static void allwinner_gpio_free(struct gpio_chip *chip, uint32_t offset)
+{
+    allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    allwinner_gpio_set_pin_func(regs, offset,  ALLWINNER_H6_PINMUX_DISABLE);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+}
+
+static int32_t allwinner_gpio_get_direction(struct gpio_chip *chip, uint32_t offset)
+{
+    int32_t  ret  =  0;
+    allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    uint32_t  cfg_idx = ALLWINNNER_H6_PIN_CFG_IDX(offset);
+    uint32_t  shift   =  ALLWINNNER_H6_PIN_CFG_SHIFT(offset);
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    uint32_t  ori_cfg  =  readl_relaxed(&regs[cfg_idx]);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+    uint32_t  ori_pinctrl = ( ori_cfg >> shift ) & ALLWINNNER_H6_PIN_CFG_MASK;
+    if (ori_pinctrl == ALLWINNER_H6_PINMUX_INPUT) {
+        ret  =  1;
+    } else if (ori_pinctrl == ALLWINNER_H6_PINMUX_OUTPUT) {
+        ret  =  0;
+    } else {
+        ret  =  -EINVAL;
+    }
+
+	return  ret;
+}
+
+static int32_t allwinner_gpio_input(struct gpio_chip *chip, uint32_t offset)
+{
+    int32_t  ret  =  0;
+	allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    ret  =  allwinner_gpio_set_pin_func(regs, offset,  ALLWINNER_H6_PINMUX_INPUT);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+	return  ret;
+}
+
+static int32_t allwinner_gpio_get(struct gpio_chip *chip, uint32_t offset)
+{
+    int32_t  ret  =  0;
+	allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+	return  ret;
+}
+
+static int32_t allwinner_gpio_output(struct gpio_chip *chip, uint32_t offset, int32_t value)
+{
+    int32_t  ret  =  0;
+	allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    ret  =  allwinner_gpio_set_pin_func(regs, offset,  ALLWINNER_H6_PINMUX_OUTPUT);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+	return  ret;
+}
+
+static int32_t allwinner_gpio_set_config(struct gpio_chip *chip, uint32_t offset,
+				unsigned long config)
+{
+}
 
 
-
+static void allwinner_gpio_set(struct gpio_chip *chip, uint32_t offset, int32_t value)
+{
+}
 
 
 static int32_t allwinner_gpio_chip_init(allwinner_h6_gpio_plat_t * gpio_data, struct irq_chip * irqc)
 {
     int32_t  ret  =  0;
+
+    gpio_data->gpio_chip.request  =  allwinner_gpio_request;
+    gpio_data->gpio_chip.free  =  allwinner_gpio_free;
+    gpio_data->gpio_chip.get_direction  = allwinner_gpio_get_direction;
+    gpio_data->gpio_chip.direction_input  = allwinner_gpio_input;
+    gpio_data->gpio_chip.get  =  allwinner_gpio_get;
+    gpio_data->gpio_chip.direction_output  =  allwinner_gpio_output;
+    gpio_data->gpio_chip.set_config  =  allwinner_gpio_set_config;
+    gpio_data->gpio_chip.set  =  allwinner_gpio_set;
+
 	ret = gpiochip_add_data(&gpio_data->gpio_chip,  gpio_data);
 	if (ret) {
 		_PRINTF_ERROR("allwinner register gpio driver failed!\n");
@@ -148,6 +293,7 @@ static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
     gpio_data->gpio_chip.ngpio  =  ngpios;
     gpio_data->gpio_chip.owner  =  THIS_MODULE;
 
+    raw_spin_lock_init(&gpio_data->lock);
 
 	platform_set_drvdata(pdev, gpio_data);
 
@@ -168,18 +314,10 @@ static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
 }
 
 
-
-
-
-
-
-
 struct of_device_id allwinner_gpio_ids[] =  {
 	{.compatible = "allwinner,H6-v200-gpio"},
     {}
 };
-
-
 
 
 struct  platform_driver  allwinner_gpio_driver = {
@@ -191,7 +329,6 @@ struct  platform_driver  allwinner_gpio_driver = {
     }
 
 };
-
 
 
 static int32_t  __init  allwinner_gpio_init(void)
