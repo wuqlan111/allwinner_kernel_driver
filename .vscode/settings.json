@@ -4,7 +4,10 @@
         "*.h": "c",
         "*.c": "c"
     },
+
     "C_Cpp.autocomplete": "default",
     "editor.wordBasedSuggestions": true,
-    "editor.wordBasedSuggestionsMode": "allDocuments"
+    "editor.wordBasedSuggestionsMode": "allDocuments",
+
+    
 }

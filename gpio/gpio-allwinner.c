@@ -17,6 +17,7 @@
 #include <linux/compiler-gcc.h>
 
 #include "gpio-allwinner.h"
+#include "linux/idr.h"
 
 #define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 #define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
@@ -464,6 +465,68 @@ static int32_t allwinner_gpio_irq_type(struct irq_data *d, uint32_t type)
 
 	return 0;
 
+}
+
+
+static irqreturn_t allwinner_gpio_irq_handler(int32_t irq, void * dev_id)
+{
+	allwinner_h6_gpio_plat_t * gpio_data = dev_id;
+    allwinner_h6_gpio_interrupt_t * int_regs  =  gpio_data->interrupt_base;
+    unsigned long  lock_flags =  0;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_WARN("gpio don't support irq\n");
+        return  IRQ_HANDLED;
+    }
+
+	pm_runtime_get_sync(gpio_data->gpio_chip.parent);
+
+    uint32_t  enable, isr,  bit;
+	while (1) {
+		raw_spin_lock_irqsave(&gpio_data->lock, lock_flags);
+
+        enable  =  readl_relaxed(&int_regs->cfgx);
+
+		/* clear edge sensitive interrupts before handler(s) are
+		called so that we don't miss any interrupt occurred while
+		executing them */
+		// if (isr & ~level_mask)
+			// omap_clear_gpio_irqbank(bank, isr & ~level_mask);
+
+		raw_spin_unlock_irqrestore(&gpio_data->lock, lock_flags);
+
+		if (!isr)
+			break;
+
+		while (isr) {
+			bit = __ffs(isr);
+			isr &= ~(BIT(bit));
+
+			raw_spin_lock_irqsave(&gpio_data->lock, lock_flags);
+			/*
+			 * Some chips can't respond to both rising and falling
+			 * at the same time.  If this irq was requested with
+			 * both flags, we need to flip the ICR data for the IRQ
+			 * to respond to the IRQ for the opposite direction.
+			 * This will be indicated in the bank toggle_mask.
+			 */
+			// if (bank->toggle_mask & (BIT(bit)))
+				// omap_toggle_gpio_edge_triggering(bank, bit);
+
+			raw_spin_unlock_irqrestore(&gpio_data->lock, lock_flags);
+
+			// raw_spin_lock_irqsave(&gpio_data->wa_lock, wa_lock_flags);
+
+			generic_handle_irq(irq_find_mapping(gpio_data->gpio_chip.irq.domain,
+							    bit));		//根据引脚编号获取软irq进行处理
+
+			// raw_spin_unlock_irqrestore(&bank->wa_lock,
+			// 			   wa_lock_flags);
+		}
+	}
+exit:
+	pm_runtime_put(gpio_data->gpio_chip.parent);
+	return IRQ_HANDLED;
 }
 
 
