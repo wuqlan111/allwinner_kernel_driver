@@ -40,12 +40,15 @@ typedef enum {
 
 #define  ALLWINNNER_H6_PIN_CFG_IDX(offset)      ((offset)>>3)
 #define  ALLWINNNER_H6_PIN_CFG_SHIFT(offset)    (((offset) & 0x7) << 2)
-
 #define  ALLWINNNER_H6_PIN_CFG_MASK              GENMASK(2, 0)
 
+#define  ALLWINNNER_H6_PIN_PULL_IDX(offset)      ((offset)>>4)
+#define  ALLWINNNER_H6_PIN_PULL_SHIFT(offset)    (((offset) & 0xf) << 1)
+#define  ALLWINNNER_H6_PIN_PULL_MASK              GENMASK(1, 0)
 
-
-
+#define  ALLWINNNER_H6_PIN_DRIVE_IDX(offset)      ((offset)>>4)
+#define  ALLWINNNER_H6_PIN_DIRVE_SHIFT(offset)    (((offset) & 0xf) << 1)
+#define  ALLWINNNER_H6_PIN_DRIVE_MASK             GENMASK(1, 0)
 
 
 #endif

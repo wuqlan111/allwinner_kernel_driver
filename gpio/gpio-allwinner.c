@@ -53,6 +53,74 @@ typedef struct {
 } allwinner_h6_gpio_plat_t;
 
 
+static int32_t  allwinner_gpio_set_pin_value(allwinner_h6_gpio_config_t * regs, const uint32_t pin, const uint32_t value)
+{
+    uint32_t  mask  =  1 << pin;
+    uint32_t  ori_data  =  readl_relaxed(&regs->dat);
+
+    if (value) {
+        ori_data  |=  mask;
+    } else {
+        ori_data  &= ~mask;
+    }
+
+    writel_relaxed(ori_data,  &regs->dat);
+    return  0;
+
+}
+
+static int32_t  allwinner_gpio_get_pin_value(allwinner_h6_gpio_config_t * regs, const uint32_t pin)
+{
+    uint32_t  mask  =  1 << pin;
+    uint32_t  ori_data  =  readl_relaxed(&regs->dat);
+    int32_t  ret  =  ori_data & mask ? 1:  0;
+    return  ret;
+
+}
+
+static int32_t  allwinner_gpio_set_pin_config(allwinner_h6_gpio_config_t * regs, uint32_t pin, uint64_t  config)
+{
+    int32_t  ret  =  0;
+    uint32_t  conf_param  =  pinconf_to_config_param(config);
+    uint32_t  args  =   pinconf_to_config_argument(config);
+    uint32_t  reg_idx,  shift, pull_mode, flag;
+
+    _PRINTF_DBG("gpio_config:\tparam -- %u,\targs -- %#08x\n", conf_param, args);
+    switch (conf_param) {
+        case  PIN_CONFIG_BIAS_PULL_UP:
+            pull_mode  =  ALLWINNER_H6_GPIO_PUPD_UP;
+            break;
+        case  PIN_CONFIG_BIAS_PULL_DOWN:
+            pull_mode  =  ALLWINNER_H6_GPIO_PUPD_DOWN;
+            break;
+        case  PIN_CONFIG_DRIVE_OPEN_DRAIN:
+            pull_mode  =  ALLWINNER_H6_GPIO_PUPD_NO;
+            break;
+    
+        default:
+            ret  =  -ENOTSUPP;
+            _PRINTF_ERROR("not support config param [%u]\n", conf_param);
+    }
+
+    switch (conf_param) {
+        case  PIN_CONFIG_BIAS_PULL_UP:
+        case  PIN_CONFIG_BIAS_PULL_DOWN:
+        case  PIN_CONFIG_DRIVE_OPEN_DRAIN:
+            reg_idx  =  ALLWINNNER_H6_PIN_PULL_IDX(pin);
+            shift  =  ALLWINNNER_H6_PIN_PULL_SHIFT(pin);
+            flag  =  readl_relaxed(&regs->pullx[reg_idx]);
+            flag  &= ~(ALLWINNNER_H6_PIN_DRIVE_MASK << shift);
+            flag  |=  pull_mode << shift;
+            writel_relaxed(flag,  &regs->pullx[reg_idx]);
+            break;
+
+    }
+
+    return  ret;
+
+}
+
+
 static int32_t  allwinner_gpio_set_pin_func(allwinner_h6_gpio_config_t * regs, uint32_t offset, uint32_t func)
 {
     uint32_t  cfg_idx = ALLWINNNER_H6_PIN_CFG_IDX(offset);
@@ -160,7 +228,7 @@ static int32_t allwinner_gpio_get(struct gpio_chip *chip, uint32_t offset)
 
     unsigned long save_flag  =  0;
     raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
-    
+    ret  =  allwinner_gpio_get_pin_value(regs,  offset);
     raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
 
 	return  ret;
@@ -174,7 +242,10 @@ static int32_t allwinner_gpio_output(struct gpio_chip *chip, uint32_t offset, in
 
     unsigned long save_flag  =  0;
     raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
-    ret  =  allwinner_gpio_set_pin_func(regs, offset,  ALLWINNER_H6_PINMUX_OUTPUT);
+    ret   =  allwinner_gpio_set_pin_value(regs, offset,  value);
+    if (!ret ) {
+        ret = allwinner_gpio_set_pin_func(regs, offset,  ALLWINNER_H6_PINMUX_OUTPUT);        
+    }
     raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
 
 	return  ret;
@@ -183,11 +254,30 @@ static int32_t allwinner_gpio_output(struct gpio_chip *chip, uint32_t offset, in
 static int32_t allwinner_gpio_set_config(struct gpio_chip *chip, uint32_t offset,
 				unsigned long config)
 {
+    int32_t  ret  =  0;
+	allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    ret  =  allwinner_gpio_set_pin_config(regs,  offset,  config);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
+	return  ret;
+
 }
 
 
 static void allwinner_gpio_set(struct gpio_chip *chip, uint32_t offset, int32_t value)
 {
+	allwinner_h6_gpio_plat_t * gpio_data = gpiochip_get_data(chip);
+    allwinner_h6_gpio_config_t * regs = gpio_data->config_base;
+
+    unsigned long save_flag  =  0;
+    raw_spin_lock_irqsave(&gpio_data->lock,  save_flag);
+    allwinner_gpio_set_pin_value(regs, offset,  value);
+    raw_spin_unlock_irqrestore(&gpio_data->lock,  save_flag);
+
 }
 
 
