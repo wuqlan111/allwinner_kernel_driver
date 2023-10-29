@@ -37,9 +37,9 @@ typedef struct {
 
 typedef struct {
     uint32_t  cfgx[4];
-    uint32_t  ctl;
+    uint32_t  ctrl;
     uint32_t  sta;
-    uint32_t  deb;
+    uint32_t  debounce;
 } __packed allwinner_h6_gpio_interrupt_t;
 
 
@@ -51,6 +51,13 @@ typedef struct {
     uint32_t  hw_irq;
     struct  gpio_chip  gpio_chip;
 } allwinner_h6_gpio_plat_t;
+
+
+static inline allwinner_h6_gpio_plat_t * allwinner_irq_data_get_plat(struct irq_data *d)
+{
+	struct gpio_chip *chip = irq_data_get_irq_chip_data(d);
+	return gpiochip_get_data(chip);
+}
 
 
 static int32_t  allwinner_gpio_set_pin_value(allwinner_h6_gpio_config_t * regs, const uint32_t pin, const uint32_t value)
@@ -151,6 +158,44 @@ static int32_t  allwinner_gpio_set_pin_func(allwinner_h6_gpio_config_t * regs, u
 
 }
 
+
+static int32_t  allwinner_gpio_set_irq_state(allwinner_h6_gpio_interrupt_t * regs, uint32_t pin, uint32_t enable)
+{
+    uint32_t  int_enable  =  readl_relaxed(&regs->ctrl);
+    uint32_t  mask  =  1 << pin;
+
+    if (enable) {
+        int_enable  |=  mask;
+    } else {
+        int_enable  &= ~mask;
+    }
+
+    writel_relaxed(int_enable,  &regs->ctrl);
+
+    return  0;
+
+}
+
+
+static int32_t  allwinner_gpio_set_trigger_type(allwinner_h6_gpio_interrupt_t * regs, uint32_t pin, uint32_t type)
+{
+    uint32_t  cfg_idx  =  ALLWINNNER_H6_PIN_TRIGGER_IDX(pin);
+    uint32_t  shift    =  ALLWINNNER_H6_PIN_TRIGGER_SHIFT(pin);
+    uint32_t  ori_cfg  =  readl_relaxed(&regs->cfgx[cfg_idx]);
+
+    if (type > ALLWINNER_H6_PINMUX_MAX_TRIGGER) {
+        _PRINTF_ERROR("don't support trigger type [%u]\n",  type);
+        return -EOPNOTSUPP;
+    }
+
+    ori_cfg  &= ~(ALLWINNNER_H6_PIN_TRIGGER_MASK << shift);
+    ori_cfg  |=  type << shift;
+
+    writel_relaxed(ori_cfg,  &regs->cfgx[cfg_idx]);
+
+    return  0;
+
+}
 
 
 // gpio driver function
@@ -281,9 +326,159 @@ static void allwinner_gpio_set(struct gpio_chip *chip, uint32_t offset, int32_t 
 }
 
 
+static uint32_t allwinner_gpio_irq_startup(struct irq_data *d)
+{
+    int32_t  ret =  0;
+	allwinner_h6_gpio_plat_t * gpio_data = allwinner_irq_data_get_plat(d);
+    allwinner_h6_gpio_config_t * cfg_regs = gpio_data->config_base;
+    allwinner_h6_gpio_interrupt_t * int_regs = gpio_data->interrupt_base;
+
+	unsigned long save_flag =  0;
+	uint32_t offset = d->hwirq;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_ERROR("gpio port don't support irq\n");
+        return -ENOTSUPP;
+    }
+
+	raw_spin_lock_irqsave(&gpio_data->lock, save_flag);
+    ret = allwinner_gpio_set_pin_func(cfg_regs, offset,  ALLWINNER_H6_PINMUX_INPUT);
+    writel_relaxed(1 << offset,  &int_regs->sta);
+    if (!ret) {
+        ret =  allwinner_gpio_set_irq_state(int_regs, offset, 1);
+    }
+	raw_spin_unlock_irqrestore(&gpio_data->lock, save_flag);
+	return  ret;
+
+}
+
+
+static void allwinner_gpio_irq_shutdown(struct irq_data *d)
+{
+	allwinner_h6_gpio_plat_t * gpio_data = allwinner_irq_data_get_plat(d);
+    allwinner_h6_gpio_interrupt_t * regs = gpio_data->interrupt_base;
+	unsigned  long  flags  = 0;
+	uint32_t  offset = d->hwirq;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_ERROR("gpio port don't support irq\n");
+        return;
+    }
+
+	raw_spin_lock_irqsave(&gpio_data->lock, flags);
+	allwinner_gpio_set_irq_state(regs, offset, 0);
+    writel_relaxed(1 << offset,  &regs->sta);
+	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
+
+}
+
+
+static void allwinner_gpio_ack_irq(struct irq_data *d)
+{
+	allwinner_h6_gpio_plat_t * gpio_data = allwinner_irq_data_get_plat(d);
+    allwinner_h6_gpio_interrupt_t * regs = gpio_data->interrupt_base;
+	unsigned  long  flags  = 0;
+	uint32_t  offset = d->hwirq;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_ERROR("gpio port don't support irq\n");
+        return;
+    }
+
+	raw_spin_lock_irqsave(&gpio_data->lock, flags);
+    writel_relaxed(1 << offset,  &regs->sta);
+	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
+}
+
+
+static void allwinner_gpio_mask_irq(struct irq_data *d)
+{
+	allwinner_h6_gpio_plat_t * gpio_data = allwinner_irq_data_get_plat(d);
+    allwinner_h6_gpio_interrupt_t * regs = gpio_data->interrupt_base;
+	unsigned  long  flags  = 0;
+	uint32_t  offset = d->hwirq;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_ERROR("gpio port don't support irq\n");
+        return;
+    }
+
+	raw_spin_lock_irqsave(&gpio_data->lock, flags);
+    allwinner_gpio_set_irq_state(regs, offset, 0);
+	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
+}
+
+static void allwinner_gpio_unmask_irq(struct irq_data *d)
+{
+	allwinner_h6_gpio_plat_t * gpio_data = allwinner_irq_data_get_plat(d);
+    allwinner_h6_gpio_interrupt_t * regs = gpio_data->interrupt_base;
+	unsigned  long  flags  = 0;
+	uint32_t  offset = d->hwirq;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_ERROR("gpio port don't support irq\n");
+        return;
+    }
+
+	raw_spin_lock_irqsave(&gpio_data->lock, flags);
+    allwinner_gpio_set_irq_state(regs, offset, 1);
+	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
+}
+
+
+static int32_t allwinner_gpio_irq_type(struct irq_data *d, uint32_t type)
+{
+	allwinner_h6_gpio_plat_t * gpio_data = allwinner_irq_data_get_plat(d);
+    allwinner_h6_gpio_interrupt_t * regs = gpio_data->interrupt_base;
+	unsigned  long  flags  = 0;
+	uint32_t offset = d->hwirq;
+
+    if (!gpio_data->has_interrupt) {
+        _PRINTF_ERROR("gpio port don't support irq\n");
+        return -ENOTSUPP;
+    }
+
+	if (type & ~IRQ_TYPE_SENSE_MASK) {
+		return -EINVAL;        
+    }
+
+	raw_spin_lock_irqsave(&gpio_data->lock, flags);
+	// retval = omap_set_gpio_triggering(bank, offset, type);
+	// if (retval) {
+	// 	raw_spin_unlock_irqrestore(&bank->lock, flags);
+	// 	goto error;
+	// }
+	// omap_gpio_init_irq(bank, offset);
+	// if (!omap_gpio_is_input(bank, offset)) {
+	// 	raw_spin_unlock_irqrestore(&bank->lock, flags);
+	// 	retval = -EINVAL;
+	// 	goto error;
+	// }
+	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
+
+	if (type & (IRQ_TYPE_LEVEL_LOW | IRQ_TYPE_LEVEL_HIGH)) {
+		irq_set_handler_locked(d, handle_level_irq);        
+    } else if (type & (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_EDGE_RISING)) {
+		irq_set_handler_locked(d, handle_simple_irq);        
+    }
+
+	return 0;
+
+}
+
+
+
 static int32_t allwinner_gpio_chip_init(allwinner_h6_gpio_plat_t * gpio_data, struct irq_chip * irqc)
 {
     int32_t  ret  =  0;
+
+	irqc->irq_startup = allwinner_gpio_irq_startup,
+	irqc->irq_shutdown = allwinner_gpio_irq_shutdown,
+	irqc->irq_ack = allwinner_gpio_ack_irq,
+	irqc->irq_mask = allwinner_gpio_mask_irq,
+	irqc->irq_unmask = allwinner_gpio_unmask_irq,
+	irqc->irq_set_type = allwinner_gpio_irq_type,
+	irqc->flags = IRQCHIP_MASK_ON_SUSPEND;
 
     gpio_data->gpio_chip.request  =  allwinner_gpio_request;
     gpio_data->gpio_chip.free  =  allwinner_gpio_free;
@@ -375,6 +570,8 @@ static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
     if (gpio_data->has_interrupt) {
         gpio_data->config_base  =  devm_ioremap(dev,  int_base,  sizeof(allwinner_h6_gpio_interrupt_t));
     }
+
+    irqc->name = dev_name(&pdev->dev);
 
     gpio_data->hw_irq  =  irq_hw;
     gpio_data->gpio_chip.base  =  irq_hw;

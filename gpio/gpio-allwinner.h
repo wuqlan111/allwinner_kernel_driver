@@ -34,6 +34,17 @@ typedef enum {
 } allwinner_h6_pinmux_af_e;
 
 
+typedef enum {
+	ALLWINNER_H6_PINMUX_POSITIVE_EDGE = 0,
+	ALLWINNER_H6_PINMUX_NEGATIVE_EDGE,
+	ALLWINNER_H6_PINMUX_HIGH_LEVEL,
+	ALLWINNER_H6_PINMUX_LOW_LEVEL,
+	ALLWINNER_H6_PINMUX_DOUBLE_EDGE,
+	ALLWINNER_H6_PINMUX_MAX_TRIGGER  =  ALLWINNER_H6_PINMUX_DOUBLE_EDGE
+} allwinner_h6_pinmux_trigger_type_e;
+
+
+
 #define  ALLWINNER_H6_PINMUX_INPUT       ALLWINNER_H6_PINMUX_AF0
 #define  ALLWINNER_H6_PINMUX_OUTPUT      ALLWINNER_H6_PINMUX_AF1
 #define  ALLWINNER_H6_PINMUX_DISABLE     ALLWINNER_H6_PINMUX_AF7
@@ -49,6 +60,10 @@ typedef enum {
 #define  ALLWINNNER_H6_PIN_DRIVE_IDX(offset)      ((offset)>>4)
 #define  ALLWINNNER_H6_PIN_DIRVE_SHIFT(offset)    (((offset) & 0xf) << 1)
 #define  ALLWINNNER_H6_PIN_DRIVE_MASK             GENMASK(1, 0)
+
+#define  ALLWINNNER_H6_PIN_TRIGGER_IDX(offset)      ((offset)>>3)
+#define  ALLWINNNER_H6_PIN_TRIGGER_SHIFT(offset)    (((offset) & 0xf) << 2)
+#define  ALLWINNNER_H6_PIN_TRIGGER_MASK             GENMASK(3, 0)
 
 
 #endif
