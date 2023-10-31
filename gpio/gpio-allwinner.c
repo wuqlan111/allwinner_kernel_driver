@@ -17,7 +17,6 @@
 #include <linux/compiler-gcc.h>
 
 #include "gpio-allwinner.h"
-#include "linux/idr.h"
 
 #define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 #define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
