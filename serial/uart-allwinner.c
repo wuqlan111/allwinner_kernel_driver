@@ -71,25 +71,249 @@ typedef struct {
 } allwinner_uart_port_t;
 
 
+static void _allwinner_serial_set_or_clean_dlab(allwinner_h6_uart_t * const uart_reg, const uint32_t set)
+{
+	while(readl_relaxed(&uart_reg->usr) & ALLWINNER_UART_SR_BUSY) ;
+    uint32_t  flag  =  readl_relaxed(&uart_reg->lcr);
 
+	if (set) {
+		flag  |= ALLWINNER_UART_LCR_DLAB;
+	} else {
+		flag  &= ~ALLWINNER_UART_LCR_DLAB;
+	}
+    writel_relaxed(flag,  &uart_reg->lcr);
+}
+
+
+static int _allwinner_h6_serial_setbrg(allwinner_h6_uart_t * const uart_reg, 
+										const uint64_t clk_rate, const int32_t baudrate)
+{
+
+	uint64_t  tmp_baudrate  =  baudrate  << 4;
+	uint64_t  divisor  =  clk_rate  / tmp_baudrate;
+	uint64_t  integer_part  =  divisor;
+
+	if ( (baudrate <= 0)  ||  !divisor ) {
+		_PRINTF_ERROR("baudrate[%d] invalid!\n", baudrate);
+		return  -EINVAL;
+	}
+
+	if (clk_rate % tmp_baudrate) {
+		ulong tmp2 =  baudrate * (divisor + 1) * (divisor << 5);
+		integer_part  =  clk_rate >= tmp2 ? divisor+1: divisor;
+	}
+
+	if (integer_part > 0xffff) {
+		_PRINTF_ERROR("baudrate[%d] is too small!\n", baudrate);
+		return  -EINVAL;
+	}
+
+	_allwinner_serial_set_or_clean_dlab(uart_reg,  1);
+
+	writel_relaxed(integer_part & 0xff,  &uart_reg->dll);
+	writel_relaxed(integer_part >> 8,   &uart_reg->dlh);
+
+	_allwinner_serial_set_or_clean_dlab(uart_reg,  0);
+
+	return 0;
+
+}
+
+#define  UARTX_FIFO_INIT_FLAG    (ALLWINNER_UART_FCR_FIFOE | ALLWINNER_UART_FCR_RFIFOR \
+									| ALLWINNER_UART_FCR_XFIFOR)
+#define  UARTX_MCR_INIT_FLAG     (ALLWINNER_UART_MCR_DTR | ALLWINNER_UART_MCR_RTS)
+
+static  int32_t  _allwinner_h6_serial_init(allwinner_h6_uart_t * const uart_reg,
+			const ulong usart_clk_rate, const int32_t baudrate)
+{
+	int32_t  ret = 0;
+
+	_allwinner_serial_set_or_clean_dlab(uart_reg,  0);
+
+	writel_relaxed(0, &uart_reg->ier);
+	writel_relaxed(UARTX_FIFO_INIT_FLAG, &uart_reg->fcr);
+	writel_relaxed(0x3,  &uart_reg->lcr);
+	writel_relaxed(UARTX_MCR_INIT_FLAG,  &uart_reg->mcr);
+
+	ret = _allwinner_h6_serial_setbrg(uart_reg, usart_clk_rate, baudrate);
+
+	return  ret;
+
+}
+
+static int32_t _allwinner_h6_serial_getc(allwinner_h6_uart_t * const uart_reg)
+{
+	uint32_t  lsr = readl_relaxed(&uart_reg->lsr);
+
+	if ( ! (lsr & ALLWINNER_UART_LSR_DR)) {
+		return  -EAGAIN;
+	}
+
+	return  readl_relaxed(&uart_reg->rbr);
+}
+
+
+
+static int _allwinner_h6_serial_putc(allwinner_h6_uart_t * const uart_reg, const char ch)
+{
+	uint32_t  lsr = readl_relaxed(&uart_reg->lsr);
+
+	if ( ! (lsr & ALLWINNER_UART_LSR_THRE)) {
+		return  -EAGAIN;
+	}
+
+    _allwinner_serial_set_or_clean_dlab(uart_reg,  0);
+	writel(ch,  &uart_reg->thr);
+
+	return  0;
+}
+
+
+static int _allwinner_h6_serial_pending(allwinner_h6_uart_t *  const uart_reg, const uint32_t input)
+{
+	uint32_t  pending =  0;
+	uint32_t  lsr = readl_relaxed(&uart_reg->lsr); 
+	if (input) {
+		pending = lsr & ALLWINNER_UART_LSR_DR ? 1 : 0;	
+	} else {
+		pending = lsr & ALLWINNER_UART_LSR_THRE ? 0 : 1;	
+	}
+
+	return  pending;
+
+}
+
+static uint32_t allwinner_uart_tx_empty(struct uart_port *port)
+{
+	allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+    uint32_t  ret  =  readl_relaxed(&regs->lsr) & ALLWINNER_UART_LSR_THRE? 1: 0;
+	return  ret;
+}
+
+static uint32_t allwinner_uart_get_mctrl(struct uart_port *port)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+    return  0;
+}
+
+static void allwinner_uart_set_mctrl(struct uart_port *port, uint32_t mctrl)
+{
+
+
+}
+
+static void allwinner_uart_enable_ms(struct uart_port *port)
+{
+
+}
+
+
+static void allwinner_uart_break_ctl(struct uart_port *port, int32_t break_state)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+    uint32_t  flag  = readl_relaxed(&regs->lcr);
+	if (break_state == -1) {
+		flag |= ALLWINNER_UART_LCR_BC;        
+    } else {
+		flag &= ~ALLWINNER_UART_LCR_BC;        
+    }
+    writel_relaxed(flag,  &regs->lcr);
+
+}
+
+static int32_t allwinner_uart_startup(struct uart_port *port)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+
+
+    return  0;
+}
+
+static void allwinner_uart_shutdown(struct uart_port *port)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+}
+
+static void  allwinner_uart_set_termios(struct uart_port *port, struct ktermios *termios,
+		   struct ktermios *old)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+}
+
+static const char * allwinner_uart_type(struct uart_port *port)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+
+	return  uart_port->port.type == PORT_SUNIX ? "Allwinner" : NULL;
+}
+
+
+static void allwinner_uart_release_port(struct uart_port *port)
+{
+
+}
+
+static int allwinner_uart_request_port(struct uart_port *port)
+{
+
+}
+
+
+static void allwinner_uart_config_port(struct uart_port *port, int32_t flags)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+	if (flags & UART_CONFIG_TYPE ) {
+		uart_port->port.type = PORT_SUNIX;        
+    }
+
+}
+
+static int32_t allwinner_uart_verify_port(struct uart_port *port, struct serial_struct *ser)
+{
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+	int32_t ret = 0;
+
+	if (ser->type != PORT_UNKNOWN && ser->type != PORT_SUNIX) {
+		ret = -EINVAL;
+        goto  end; 
+    }
+
+end:
+	return  ret;
+}
 
 static struct uart_ops allwinner_uart_ops = {
-    // .tx_empty	=  allwinner_uart_tx_empty,
-	// .set_mctrl	=  allwinner_uart_set_mctrl,
-	// .get_mctrl	=  allwinner_uart_get_mctrl,
+    .tx_empty	=  allwinner_uart_tx_empty,
+	.set_mctrl	=  allwinner_uart_set_mctrl,
+	.get_mctrl	=  allwinner_uart_get_mctrl,
 	// .stop_tx	=  allwinner_uart_stop_tx,
 	// .start_tx	=  allwinner_uart_start_tx,
 	// .stop_rx	=  allwinner_uart_stop_rx,
-	// .enable_ms	=  allwinner_uart_enable_ms,
-	// .break_ctl	=  allwinner_uart_break_ctl,
-	// .startup	=  allwinner_uart_startup,
-	// .shutdown	=  allwinner_uart_shutdown,
-	// .set_termios	=  allwinner_uart_set_termios,
-	// .type		= allwinner_uart_type,
-	// .release_port	=  allwinner_uart_release_port,
-	// .request_port	=  allwinner_uart_request_port,
-	// .config_port	=  allwinner_uart_config_port,
-	// .verify_port	=  allwinner_uart_verify_port,
+	.enable_ms	=  allwinner_uart_enable_ms,
+	.break_ctl	=  allwinner_uart_break_ctl,
+	.startup	=  allwinner_uart_startup,
+	.shutdown	=  allwinner_uart_shutdown,
+	.set_termios	=  allwinner_uart_set_termios,
+	.type		= allwinner_uart_type,
+	.release_port	=  allwinner_uart_release_port,
+	.request_port	=  allwinner_uart_request_port,
+	.config_port	=  allwinner_uart_config_port,
+	.verify_port	=  allwinner_uart_verify_port,
 };
 
 
