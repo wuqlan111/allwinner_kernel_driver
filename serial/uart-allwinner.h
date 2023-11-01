@@ -7,5 +7,8 @@
 #define  UART_ALLWINNER_MINOR_START		5
 #define  UART_ALLWINNNER_NR_PORTS		3
 
+#define  UART_ALLWINNER_MAP_SIZE        (0x400u)
+
+
 
 #endif
