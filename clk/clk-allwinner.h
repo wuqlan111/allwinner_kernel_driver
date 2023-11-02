@@ -81,6 +81,8 @@
 
 #define  ALLWINNER_CCU_MAP_SIZE        (0x2000u)
 
+#define  ALLWINNER_PLLX_SRC_CLK        (24000000u)
+
 
 
 #endif

@@ -15,6 +15,7 @@
 #include <linux/clk-provider.h>
 #include <linux/bitops.h>
 #include <linux/compiler-gcc.h>
+#include <linux/delay.h>
 
 #include "clk-allwinner.h"
 
@@ -24,7 +25,319 @@
 #define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 #define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 
-static const struct clk_ops pll_clk_ops = {0};
+typedef  struct {
+    struct  clk_hw  hw;
+    uint32_t  clk_id;
+    uint32_t  offset;
+} allwinner_clk_hw_t;
+
+static  uint32_t *  global_map = NULL;
+
+static char * allwinner_clk_2_str(const uint32_t clk);
+
+static  int32_t  _allwinner_h6_pll_enable(struct clk_hw * hw)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    if (!global_map) {
+        return -EINVAL;
+    }
+
+    uint32_t  flag = readl_relaxed(&global_map[reg_offset]);
+    if ( !(flag & ALLWINNER_H6_PLLX_ENABLE) ) {
+        flag |= ( ALLWINNER_H6_PLLX_ENABLE | ALLWINNER_H6_PLLX_LOCK_ENABLE );
+        writel_relaxed(flag,  &global_map[reg_offset]);
+    }
+
+    while (!(readl_relaxed(&global_map[reg_offset]) & ALLWINNER_H6_PLLX_LOCK))  ;
+    udelay(20);
+    return   0;
+}
+
+
+static  void  _allwinner_h6_pll_disable(struct clk_hw * hw)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    if (!global_map) {
+        return;
+    }
+
+    uint32_t  flag = readl_relaxed(&global_map[reg_offset]);
+    if ( flag & ALLWINNER_H6_PLLX_ENABLE ) {
+        flag &= ~( ALLWINNER_H6_PLLX_ENABLE | ALLWINNER_H6_PLLX_LOCK_ENABLE );
+        writel_relaxed(flag,  &global_map[reg_offset]);
+    }
+
+}
+
+
+static  int32_t  _allwinner_h6_pll_enabled(struct clk_hw * hw)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    if (!global_map) {
+        return -EINVAL;
+    }
+
+    uint32_t  flag = readl_relaxed(&global_map[reg_offset]);
+    int32_t  ret  =  flag & ALLWINNER_H6_PLLX_ENABLE ? 1:  0;
+
+    return   ret;
+}
+
+static  unsigned long _allwinner_h6_pll_recalc_rate(struct clk_hw *hw, 
+                unsigned long parent_rate)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+    uint32_t  clk_id  =  clk_hw->clk_id;
+
+    if (!global_map) {
+        return -EINVAL;
+    }
+
+    uint32_t * reg_addr =  &global_map[reg_offset];
+    uint32_t  pll_n, pll_m, tmp_m;
+    pll_n  = pll_m  = tmp_m = 0;    
+
+    uint32_t  clk_ctrl = readl_relaxed(reg_addr);
+    pll_n  =  ((clk_ctrl & ALLWINNER_H6_PLLX_FACTOR_N ) >>  8)  + 1;
+
+    switch (clk_id) {
+        case  ALLWINNER_PLL_CPUX:
+            tmp_m  =  (clk_ctrl & GENMASK(17,  16)) >> 16;
+            pll_m  =  1 << tmp_m;
+            break;
+
+        case  ALLWINNER_PLL_DDR0 ... ALLWINNER_PLL_GPU:
+        case  ALLWINNER_PLL_VE ...  ALLWINNER_PLL_HSIC:
+            tmp_m  =  clk_ctrl & 0x3;
+            pll_m =  (tmp_m ==  0)  || (tmp_m == 3) ? tmp_m + 1: 2;
+            break;
+        case ALLWINNER_PLL_VIDEO0_4X ... ALLWINNER_PLL_VIDEO1_1X:
+            pll_m  =  clk_ctrl &  BIT(1) ? 2: 1;
+            break;
+
+        case  ALLWINNER_PLL_AUDIO_4X:
+        case  ALLWINNER_PLL_AUDIO: {
+                uint32_t in_div  =  clk_ctrl & BIT(1)? 2: 1;
+                uint32_t out_div  =  clk_ctrl & BIT(0)? 2:  1;
+                uint32_t p = (clk_ctrl & GENMASK(21,  16) >> 16) + 1;
+                if (clk_id == ALLWINNER_PLL_AUDIO_4X) {
+                    pll_m  =  2 * in_div;
+                } else {
+                    pll_m  =  p * in_div * out_div;
+                }
+        }
+            break;
+        
+        default:
+            _PRINTF_ERROR("clk_id -- %u, invalid pll clk id!", clk_id);
+            return  -EINVAL;
+    }
+
+    uint32_t  shift =  0;
+    switch (clk_id) {
+        case ALLWINNER_PLL_PERI0_1X:
+        case ALLWINNER_PLL_PERI1_1X:
+        case ALLWINNER_PLL_VIDEO0_1X:
+        case ALLWINNER_PLL_VIDEO1_1X:
+            shift =  2;
+            break;
+
+        case ALLWINNER_PLL_PERI0_2X:
+        case ALLWINNER_PLL_PERI1_2X:
+            shift  =  1;
+            break;
+    
+        default:
+            shift  =  0;
+    }
+
+    unsigned long rate  =  ( ALLWINNER_PLLX_SRC_CLK * pll_n) / ( pll_m * (1 << shift) );
+
+    return  rate;
+
+}
+
+static  uint32_t  allwinner_pll_m[] = { 1,  2,  4};
+static  long  _allwinner_h6_pll_round_rate(struct clk_hw *hw, unsigned long rate,
+					unsigned long *parent_rate)
+{
+    long  ret =  0;
+
+    uint32_t  pll_m, pll_n, best_pll_m, best_pll_n;
+    ulong rate_delta  =  rate;
+    pll_m  = pll_n  = best_pll_m  =  best_pll_n  =  0;
+
+    const  uint32_t  pll_m_count  =  ARRAY_SIZE(allwinner_pll_m);
+    const  ulong   tmp_rate_min   =  rate * allwinner_pll_m[0];
+    const  ulong   tmp_rate_max   =  rate * allwinner_pll_m[pll_m_count - 1];
+    const  ulong   pll_n_min  =  tmp_rate_min / ALLWINNER_PLLX_SRC_CLK;
+    const  ulong   pll_n_max  =  tmp_rate_max / ALLWINNER_PLLX_SRC_CLK;
+
+    if (!rate) {
+        _PRINTF_ERROR("rate is zero!");
+        return  -EINVAL;
+    }
+
+    for (int32_t  i  =  0;  i  <  pll_m_count; i++) {
+        uint32_t  find_best  =  0;
+        for (pll_n =  pll_n_min; pll_n < pll_n_max; pll_n++) {
+            ulong  tmp_rate  =  (pll_n * ALLWINNER_PLLX_SRC_CLK) / allwinner_pll_m[i];
+            ulong  tmp_delta  =  rate - tmp_rate;
+
+            if ( (pll_n > 0xff) || (tmp_rate > rate) ) {
+                break;
+            }
+
+            if (tmp_delta < rate_delta) {
+                rate_delta  =  tmp_delta;
+                best_pll_m  =  allwinner_pll_m[i];
+                best_pll_n  =  pll_n;
+                *parent_rate   =  tmp_rate;
+            }
+
+            if (tmp_rate == rate) {
+                find_best =  1;
+                break;
+            }
+
+        }
+    }
+
+    if ( !best_pll_m || !best_pll_n) {
+        _PRINTF_ERROR("rate -- [%lu] not support!", rate);
+        ret  =  -EINVAL;
+    }
+
+    return  ret;
+
+}
+
+static  int32_t _allwinner_h6_pll_set_rate(struct clk_hw *hw, unsigned long rate,
+				    unsigned long parent_rate)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+    uint32_t  clk_id  =  clk_hw->clk_id;
+
+    uint32_t  pll_m, pll_n, best_pll_m, best_pll_n;
+    ulong   rate_delta  =  rate;
+    pll_m  = pll_n  = best_pll_m  =  best_pll_n  =  0;
+
+    const  uint32_t  pll_m_count  =  ARRAY_SIZE(allwinner_pll_m);
+    const  ulong   tmp_rate_min   =  rate * allwinner_pll_m[0];
+    const  ulong   tmp_rate_max   =  rate * allwinner_pll_m[pll_m_count - 1];
+    const  ulong   pll_n_min  =  tmp_rate_min / ALLWINNER_PLLX_SRC_CLK;
+    const  ulong   pll_n_max  =  tmp_rate_max / ALLWINNER_PLLX_SRC_CLK;
+
+    if (!rate) {
+        _PRINTF_ERROR("rate is zero!");
+        return  -EINVAL;
+    }
+
+    for (int32_t  i  =  0;  i  <  pll_m_count; i++) {
+        uint32_t  find_best  =  0;
+        for (pll_n =  pll_n_min; pll_n < pll_n_max; pll_n++) {
+            ulong  tmp_rate  =  (pll_n * ALLWINNER_PLLX_SRC_CLK) / allwinner_pll_m[i];
+            ulong  tmp_delta  =  rate - tmp_rate;
+
+            if ( (pll_n > 0xff) || (tmp_rate > rate) ) {
+                break;
+            }
+
+            if (tmp_delta < rate_delta) {
+                rate_delta  =  tmp_delta;
+                best_pll_m  =  allwinner_pll_m[i];
+                best_pll_n  =  pll_n;
+                // *new_rate   =  tmp_rate;
+            }
+
+            if (tmp_rate == rate) {
+                find_best =  1;
+                break;
+            }
+
+        }
+    }
+
+
+    if ( !best_pll_m || !best_pll_n) {
+        _PRINTF_ERROR("rate -- [%lu] not support!", rate);
+        return  -EINVAL;
+    }
+
+    uint32_t  flag,  mask;
+    flag  =  (best_pll_n - 1) << 8;
+    mask  =  ALLWINNER_H6_PLLX_FACTOR_N;
+
+    switch (clk_id) {
+        case  ALLWINNER_PLL_CPUX:
+            if (best_pll_m < 4) {
+                flag  |=  ( pll_m - 1)  << 16;
+            } else {
+                flag  |=  0x2  <<  16;
+            }
+
+            mask  |=  0x3 <<  16;
+            break;
+
+        case  ALLWINNER_PLL_DDR0 ... ALLWINNER_PLL_GPU:
+        case  ALLWINNER_PLL_VE ...  ALLWINNER_PLL_HSIC:
+            flag  |=  (best_pll_m - 1);
+            mask  |=  0x3;
+            break;
+        // case  ALLWINNER_PLL_VIDEO0:
+        // case  ALLWINNER_PLL_VIDEO1: 
+            if (best_pll_m > 2) {
+                _PRINTF_ERROR("pll_m -- [%u], rate -- [%lu] invalid!", best_pll_m, rate);
+                return  -EINVAL;
+            }
+            flag  |=  (best_pll_m - 1) << 1;
+            mask  |=  0x2;
+            break;
+        
+        default:
+            _PRINTF_ERROR("clk_id -- %u, invalid pll clk id!", clk_id);
+            return  -EINVAL;
+    }
+
+    uint32_t * reg_addr =  &global_map[reg_offset];
+
+    uint32_t  clk_ctrl  =  readl(reg_addr);
+    uint32_t  clk_enable  =  clk_ctrl & ALLWINNER_H6_PLLX_ENABLE ? 1: 0;
+    uint32_t  support_change_rate  =  (clk_id == ALLWINNER_PLL_CPUX) || 
+                ( clk_id ==  ALLWINNER_PLL_GPU ) ? 1:  0;
+
+    if ( (clk_ctrl & mask)  ==  flag) {
+        _PRINTF_WARN("clk [%s] rate has been set!", allwinner_clk_2_str(clk_id));
+        return  0;
+    }
+
+    if (clk_enable && !support_change_rate) {
+        _PRINTF_ERROR("clk [%s] rate don't support DFS!", allwinner_clk_2_str(clk_id));
+        return  -EINVAL;
+    }
+
+    return  0;
+
+}
+
+
+static const struct clk_ops pll_clk_ops = {
+    .enable  = _allwinner_h6_pll_enable,
+    .disable  = _allwinner_h6_pll_disable,
+    .is_enabled  =  _allwinner_h6_pll_enabled,
+    .recalc_rate  =  _allwinner_h6_pll_recalc_rate,
+    .round_rate  = _allwinner_h6_pll_round_rate,
+    .set_rate  =  _allwinner_h6_pll_set_rate,
+};
+
 static const struct clk_ops normal_clk_ops = {0};
 
 
@@ -61,12 +374,6 @@ const char * clk_ap1_parent[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_
 
 
 static struct clk_init_data _pll_normal_clk_init[] = {CLK_INIT_DATAS};
-
-typedef  struct {
-    struct  clk_hw  hw;
-    uint32_t  clk_id;
-    uint32_t  offset;
-} allwinner_clk_hw_t;
 
 
 #define  ALLWINNER_CLK_HW(clk, reg)    [clk] = {   \
@@ -221,6 +528,7 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
 		return  PTR_ERR(map);
     }
 
+    global_map  =  map;
     data->map_base  =  map;
     data->phy_addr  =  phy_addr;
     platform_set_drvdata(pdev, data);
