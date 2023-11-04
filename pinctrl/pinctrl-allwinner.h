@@ -3,6 +3,19 @@
 
 #include  <linux/bitops.h>
 
+#define  ALLWINNER_PIN_COUNT      93
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
