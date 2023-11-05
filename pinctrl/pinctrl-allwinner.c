@@ -233,7 +233,7 @@ static int32_t  allwinner_pinconf_get(struct pinctrl_dev *pctldev,
 static int32_t allwinner_pinconf_set(struct pinctrl_dev *pctldev, uint32_t pin_id, 
                 unsigned long *configs,  uint32_t num_configs)
 {
-
+    return  0;
 }
 
 
@@ -394,6 +394,10 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
     pinctrl_desc->pindev.name  = "allwinner-pinctrl";
     pinctrl_desc->pindev.npins = match_data->number;
     pinctrl_desc->pindev.pins = pin_descs;
+
+    pinctrl_desc->pindev.confops  = &allwinner_pinconf_ops;
+    pinctrl_desc->pindev.pctlops  = &allwinner_pctrl_ops;
+    pinctrl_desc->pindev.pmxops  = &allwinner_pmx_ops;
 
     struct pinctrl_dev * pinctrl = NULL;
 
