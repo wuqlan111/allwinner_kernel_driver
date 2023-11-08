@@ -32,26 +32,107 @@ typedef struct {
     uint32_t  phy_addr;
 } allwinner_dma_plat_t;
 
+
 typedef  struct  {
-    uint32_t  losc_ctrl;
-    uint32_t  losc_auto_swt;
-    uint32_t  intosc_clk_prescal;
-    uint32_t  intosc_clk_cali;
-    uint32_t  yy_mm_dd;
-    uint32_t  hh_mm_ss;
+    uint32_t  enable;
+    uint32_t  pause;
+    uint32_t  addr;
+    uint32_t  cfg;
+    uint32_t  cur_src;
+    uint32_t  cur_dst;
+    uint32_t  byte_left;
+    uint32_t  param;
+    uint32_t  rsv[2];
+    uint32_t  mode;
+    uint32_t  former_desc;
+    uint32_t  pkg_num;
+    uint32_t  rsv[3];
+} __packed allwinner_h6_dma_channel_t;
+
+
+typedef  struct  {
+    uint32_t  irq_en0;
+    uint32_t  irq_en1;
     uint32_t  rsv1[2];
-    uint32_t  alarm0_cnt;
-    uint32_t  alarm0_cur;
-    uint32_t  alarm0_enable;
-    uint32_t  alarm0_irq_enable;
-    uint32_t  alarm0_irq_sta;
-    uint32_t  rsv2[3];
-    uint32_t  alarm1_wk;
-    uint32_t  alarm1_enable;
-    uint32_t  alarm1_irq_enable;
-    uint32_t  alarm1_irq_sta;
+    uint32_t  irq_pend0;
+    uint32_t  irq_pend1;
+    uint32_t  rsv2[2];
+    uint32_t  sec;
+    uint32_t  rsv3;
+    uint32_t  auto_gate;
+    uint32_t  rsv4;
+    uint32_t  sta;
+    uint32_t  rsv5[51];
+    allwinner_h6_dma_channel_t  channel_cfg[ALLWINNER_DMA_CHANNEL_NUM];
 } __packed allwinner_h6_dma_t;
 
+
+typedef  struct {
+    uint32_t  cfg;
+    uint32_t  src;
+    uint32_t  dst;
+    uint32_t  bytes;
+    uint32_t  param;
+    uint32_t  link;
+} __packed allwinner_h6_dma_desc_t;
+
+
+typedef struct {
+    uint16_t  port;
+    uint16_t  drq;
+} allwinner_dma_drq_t;
+
+#define  DMA_DRQ_ENTRY(port_id, drq_type)  {  \
+    .port  =  port_id,                  \
+    .drq   =  drq_type,               \
+}
+
+#define  DMA_DRQ_TABLE              \
+    DMA_DRQ_ENTRY(0,  ALLWINNER_DMA_DRQ_SRAM),      \
+    DMA_DRQ_ENTRY(1,  ALLWINNER_DMA_DRQ_DRAM),      \
+    DMA_DRQ_ENTRY(2,  ALLWINNER_DMA_DRQ_OWA),      \
+    DMA_DRQ_ENTRY(3,  ALLWINNER_DMA_DRQ_I2S_PCM0),      \
+    DMA_DRQ_ENTRY(4,  ALLWINNER_DMA_DRQ_I2S_PCM1),      \
+    DMA_DRQ_ENTRY(5,  ALLWINNER_DMA_DRQ_I2S_PCM2),      \
+    DMA_DRQ_ENTRY(6,  ALLWINNER_DMA_DRQ_I2S_PCM3),      \
+    DMA_DRQ_ENTRY(7,  ALLWINNER_DMA_DRQ_DMIC),      \
+    DMA_DRQ_ENTRY(9,  ALLWINNER_DMA_DRQ_CE),      \
+    DMA_DRQ_ENTRY(10,  ALLWINNER_DMA_DRQ_NAND0),      \
+    DMA_DRQ_ENTRY(14,  ALLWINNER_DMA_DRQ_UART0),      \
+    DMA_DRQ_ENTRY(15,  ALLWINNER_DMA_DRQ_UART1),      \
+    DMA_DRQ_ENTRY(16,  ALLWINNER_DMA_DRQ_UART2),      \
+    DMA_DRQ_ENTRY(17,  ALLWINNER_DMA_DRQ_UART3),      \
+    DMA_DRQ_ENTRY(22,  ALLWINNER_DMA_DRQ_SPI0),      \
+    DMA_DRQ_ENTRY(23,  ALLWINNER_DMA_DRQ_SPI1),      \
+    DMA_DRQ_ENTRY(30,  ALLWINNER_DMA_DRQ_OTG_EP1),      \
+    DMA_DRQ_ENTRY(31,  ALLWINNER_DMA_DRQ_OTG_EP2),      \
+    DMA_DRQ_ENTRY(32,  ALLWINNER_DMA_DRQ_OTG_EP3),      \
+    DMA_DRQ_ENTRY(33,  ALLWINNER_DMA_DRQ_OTG_EP4),      \
+    DMA_DRQ_ENTRY(43,  ALLWINNER_DMA_DRQ_AUDIO_HUB1),      \
+    DMA_DRQ_ENTRY(44,  ALLWINNER_DMA_DRQ_AUDIO_HUB2),      \
+    DMA_DRQ_ENTRY(45,  ALLWINNER_DMA_DRQ_AUDIO_HUB3),
+
+
+static  allwinner_dma_drq_t port_drq[]  =  { DMA_DRQ_TABLE };
+
+static  int32_t  allwinner_drq_2_port(const uint32_t drq, uint32_t * port)
+{
+    if (!port  || (drq > ALLWINNER_DMA_DRQ_MAX)) {
+        return -EINVAL;
+    }
+
+    *port  =  0;
+    for (int32_t i  =  0; i < ARRAY_SIZE(port_drq); i++) {
+        if (port_drq[i].drq == drq) {
+            *port  =  port_drq[i].port;
+            return  0;
+        }
+    }
+
+    _PRINTF_ERROR("can't get port_id by drq! drq =  %u\n", drq);
+    return  -EINVAL;
+
+}
 
 
 
