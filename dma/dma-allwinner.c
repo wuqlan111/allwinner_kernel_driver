@@ -13,6 +13,7 @@
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/dmaengine.h>
+#include <linux/list.h>
 #include <linux/of_dma.h>
 #include <linux/bitops.h>
 #include <linux/compiler-gcc.h>
@@ -75,6 +76,7 @@ typedef  struct {
     struct  list_head  node;
     enum  dma_status  status;
     struct dma_async_tx_descriptor desc;
+    uint32_t  is_cyclic;
 } __aligned(4) allwinner_dma_desc_t;
 
 typedef  struct {
@@ -160,6 +162,28 @@ static inline allwinner_dma_chan_t * to_allwinner_dma_chan(struct dma_chan * cha
 	return  container_of(chan, allwinner_dma_chan_t, chan);
 }
 
+static dma_cookie_t allwinner_dma_tx_submit(struct dma_async_tx_descriptor *tx)
+{
+	allwinner_dma_chan_t * dma_chan = to_allwinner_dma_chan(tx->chan);
+	allwinner_dma_device_t * allwinner_dma  = container_of(dma_chan->chan.device, 
+                            allwinner_dma_device_t,   dmadev);
+    allwinner_dma_desc_t * dma_desc = container_of(tx, allwinner_dma_desc_t, desc);
+	dma_cookie_t  cookie  =  0;
+	unsigned  long flags  =  0;
+
+	spin_lock_irqsave(&dma_chan->lock, flags);
+    if (dma_desc->is_cyclic) {
+        list_move_tail(&dma_desc->node, &dma_chan->cyclic_desc);
+    } else {
+        list_move_tail(&dma_desc->node, &dma_chan->one_desc);
+    }
+	cookie = ++dma_chan->chan.cookie;
+	spin_unlock_irqrestore(&dma_chan->lock, flags);
+
+	return  cookie;
+}
+
+
 static int32_t allwinner_dma_alloc_chan_resources(struct dma_chan *chan)
 {
 	allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
@@ -172,7 +196,7 @@ static int32_t allwinner_dma_alloc_chan_resources(struct dma_chan *chan)
 
 		memset(desc,   0,  sizeof(allwinner_dma_desc_t));
 		dma_async_tx_descriptor_init(&desc->desc, chan);
-		// desc->desc.tx_submit = imxdma_tx_submit;
+		desc->desc.tx_submit = allwinner_dma_tx_submit;
 
 		desc->desc.flags = DMA_CTRL_ACK;
 		desc->status = DMA_COMPLETE;
@@ -182,21 +206,6 @@ static int32_t allwinner_dma_alloc_chan_resources(struct dma_chan *chan)
 	}
 
     return   0;
-}
-
-static dma_cookie_t allwinner_dma_tx_submit(struct dma_async_tx_descriptor *tx)
-{
-	allwinner_dma_chan_t * dma_chan = to_allwinner_dma_chan(tx->chan);
-	// allwinner_dma_device_t * allwinner_dma  = container_of(dma_chan->chanP);
-	dma_cookie_t  cookie  =  0;
-	unsigned  long flags  =  0;
-
-	spin_lock_irqsave(&dma_chan->lock, flags);
-	// list_move_tail(imxdmac->ld_free.next, &imxdmac->ld_queue);
-	// cookie = dma_cookie_assign(tx);
-	spin_unlock_irqrestore(&dma_chan->lock, flags);
-
-	return  cookie;
 }
 
 
@@ -228,7 +237,6 @@ static enum dma_status allwinner_dma_tx_status(struct dma_chan *chan,
 					    dma_cookie_t cookie,
 					    struct dma_tx_state * txstate)
 {
-	// return dma_cookie_status(chan, cookie, txstate);
     return  0;
 }
 
@@ -239,7 +247,15 @@ static struct dma_async_tx_descriptor * allwinner_dma_prep_slave_sg(
 {
     allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
 
-    return NULL;
+    if (list_empty(&allwinner_chan->free_desc)) {
+        _PRINTF_ERROR("no idle allwinner dma desc!\n");
+        return  NULL;
+    }
+
+    allwinner_dma_desc_t  * dma_desc = list_first_entry(&allwinner_chan->free_desc, 
+                                            allwinner_dma_desc_t, node);
+
+    return  NULL;
 }
 
 
@@ -250,6 +266,14 @@ static struct dma_async_tx_descriptor * allwinner_dma_prep_dma_cyclic(
 {
     allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
 
+    if (list_empty(&allwinner_chan->free_desc)) {
+        _PRINTF_ERROR("no idle allwinner dma desc!\n");
+        return  NULL;
+    }
+
+    allwinner_dma_desc_t  * dma_desc = list_first_entry(&allwinner_chan->free_desc,
+                                        allwinner_dma_desc_t, node);
+
     return NULL;
 }
 
@@ -259,13 +283,24 @@ static struct dma_async_tx_descriptor * allwinner_dma_prep_dma_memcpy(
 {
     allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
 
+    if (list_empty(&allwinner_chan->free_desc)) {
+        _PRINTF_ERROR("no idle allwinner dma desc!\n");
+        return  NULL;
+    }
+
+    allwinner_dma_desc_t  * dma_desc = list_first_entry(&allwinner_chan->free_desc,  
+                                allwinner_dma_desc_t, node);
+
     return NULL;
 }
 
 static int32_t allwinner_dma_config(struct dma_chan *chan,
 			 struct dma_slave_config *dmaengine_cfg)
 {
-    allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    // allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    // allwinner_dma_device_t * allwinner_dma  = container_of(allwinner_chan->chan.device, 
+    //                         allwinner_dma_device_t,   dmadev);
+    // allwinner_h6_dma_t * regs  =  (allwinner_h6_dma_t *)allwinner_dma->map_base;
 
     return  0;
 }
@@ -274,6 +309,19 @@ static int32_t allwinner_dma_config(struct dma_chan *chan,
 static int32_t allwinner_dma_terminate_all(struct dma_chan *chan)
 {
     allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    allwinner_dma_device_t * allwinner_dma  = container_of(allwinner_chan->chan.device, 
+                            allwinner_dma_device_t,   dmadev);
+    allwinner_h6_dma_t * regs  =  (allwinner_h6_dma_t *)allwinner_dma->map_base;
+
+    const uint32_t chan_id  =  chan->chan_id;
+
+    writel_relaxed(0,  &regs->channel_cfg[chan_id].enable);
+
+    unsigned  long flags  =  0;
+ 	spin_lock_irqsave(&allwinner_chan->lock, flags);
+	list_splice_tail_init(&allwinner_chan->one_desc, &allwinner_chan->free_desc);
+	list_splice_tail_init(&allwinner_chan->cyclic_desc, &allwinner_chan->free_desc);
+	spin_unlock_irqrestore(&allwinner_chan->lock, flags);
 
     return  0;
 }

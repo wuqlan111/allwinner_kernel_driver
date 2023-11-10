@@ -15,7 +15,7 @@
             "compilerPath": "E:\\Program Files (x86)\\LLVM\\bin\\clang.exe",
             "cStandard": "c17",
             "cppStandard": "gnu++17",
-            "intelliSenseMode": "windows-gcc-x64"
+            "intelliSenseMode": "windows-clang-x64"
         }
     ],
     "version": 4
