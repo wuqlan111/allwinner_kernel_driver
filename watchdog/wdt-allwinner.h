@@ -2,6 +2,7 @@
 #define  GPIO_ALLWINNER_H6_H
 
 #include  <linux/bitops.h>
+#include  <asm-generic/bitops-instrumented.h>
 
 #define  ALLWINNER_WDT_IRQ_EN                   BIT(0)
 #define  ALLWINNER_WDT_IRQ_PENDING              BIT(0)

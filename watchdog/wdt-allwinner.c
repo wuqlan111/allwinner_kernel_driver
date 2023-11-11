@@ -13,7 +13,6 @@
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/watchdog.h>
-#include <linux/bitops.h>
 #include <linux/compiler-gcc.h>
 #include <linux/delay.h>
 
@@ -43,29 +42,61 @@ typedef  struct {
     uint32_t  offset;
 } allwinner_wdt_dev_t;
 
-
-
-
+static allwinner_wdt_dev_t * allwinner_wdt_dev_get(struct watchdog_device * wdt)
+{
+    return  container_of(wdt, allwinner_wdt_dev_t, wdt_dev );
+}
 
 static  int32_t  allwinner_wdt_start(struct watchdog_device * wdt)
 {
+    allwinner_wdt_dev_t * wdt_dev = allwinner_wdt_dev_get(wdt);
+    allwinner_wdt_t * regs = (allwinner_wdt_t *)(&wdt_dev->map_base[wdt_dev->offset >> 2]);
+
+    writel_relaxed(0x1, &regs->cfg);
+    uint32_t  flag  =  readl_relaxed(&regs->mode);
+    flag |= ALLWINNER_WDT_MODE_EN;
+    writel_relaxed(flag,  &regs->mode);
+
+    set_bit(WDOG_HW_RUNNING, &wdt_dev->wdt_dev.status);
+
     return  0;
 }
 
-
-static  int32_t  allwinner_wdt_stop(struct watchdog_device * dev)
+static  int32_t  allwinner_wdt_ping(struct watchdog_device * wdt)
 {
+    allwinner_wdt_dev_t * wdt_dev = allwinner_wdt_dev_get(wdt);
+    allwinner_wdt_t * regs = (allwinner_wdt_t *)(&wdt_dev->map_base[wdt_dev->offset >> 2]);
+
+    uint32_t flag  =  ALLWINNER_WDT_CTRL_KEY_FLAG | ALLWINNER_WDT_CTRL_RESTART;
+    writel_relaxed(flag,  &regs->ctrl);
+
     return  0;
+
 }
 
 
-static  uint32_t  allwinner_wdt_status(struct watchdog_device * dev)
-{
-    return  0;
-}
+// static  uint32_t  allwinner_wdt_status(struct watchdog_device * wdt)
+// {
+//     return  0;
+// }
 
-static  int32_t  allwinner_wdt_set_timeout(struct watchdog_device * dev, uint32_t timeout)
+static  int32_t  allwinner_wdt_set_timeout(struct watchdog_device * wdt, uint32_t timeout)
 {
+    allwinner_wdt_dev_t * wdt_dev = allwinner_wdt_dev_get(wdt);
+    allwinner_wdt_t * regs = (allwinner_wdt_t *)(&wdt_dev->map_base[wdt_dev->offset >> 2]);
+
+    uint32_t  inv_value = 0;
+
+    if (timeout <= 6) {
+        inv_value  =  timeout;
+    } else {
+        uint32_t delta  =  (timeout - 6) >> 1;
+        inv_value  =  6 + delta + (delta & 0x1);
+    }
+	
+    uint32_t  flag  =  inv_value << 4;
+    writel_relaxed(flag,  &regs->mode);
+
     return  0;
 }
 
@@ -73,11 +104,16 @@ static  int32_t  allwinner_wdt_set_timeout(struct watchdog_device * dev, uint32_
 static  struct watchdog_ops  wdt_ops = {
 	.owner = THIS_MODULE,
     .start  =  allwinner_wdt_start,
-    .stop  =  allwinner_wdt_stop,
-    .status  =  allwinner_wdt_status,
+    .ping   =  allwinner_wdt_ping,
+    // .status  =  allwinner_wdt_status,
     .set_timeout  =  allwinner_wdt_set_timeout,
 };
 
+
+static const struct watchdog_info allwinner_wdt_info = {
+	.identity = "allwinner watchdog",
+	.options = WDIOF_KEEPALIVEPING | WDIOF_SETTIMEOUT,
+};
 
 
 static int32_t  allwinner_wdt_probe(struct platform_device * pdev)
@@ -106,7 +142,7 @@ static int32_t  allwinner_wdt_probe(struct platform_device * pdev)
     wdt->wdt_dev.ops  =  &wdt_ops;
     wdt->wdt_dev.min_timeout  =  ALLWINNER_WDT_MIN_TIMEOUT;
     wdt->wdt_dev.max_timeout  =  ALLWINNER_WDT_MAX_TIMEOUT;
-
+    wdt->wdt_dev.parent  =  &pdev->dev;
 
     ret  =  watchdog_register_device(&wdt->wdt_dev);
     if (ret) {
