@@ -30,12 +30,42 @@
 
 
 
+typedef struct {
+    struct  spi_controller controller;
+    void * map_base;
+    phys_addr_t  phy_addr;
+} allwinner_spi_controller_t;
 
 
 
 static int32_t  allwinner_spi_probe(struct platform_device * pdev)
 {
+    struct device * dev  = &pdev->dev;
+    struct device_node * dev_node =  dev->of_node;
 
+    uint32_t phy_addr =  0;
+    uint32_t * map_base = NULL;
+    if (of_property_read_u32(dev_node,  "addr",  &phy_addr)) {
+        return -EINVAL;
+    }
+
+    map_base  =  devm_ioremap(dev, phy_addr,  ALLWINNER_SPI_MAP_SIZE);
+    if (!map_base) {
+        return  -EINVAL;
+    }
+
+    allwinner_spi_controller_t * spi_host  =  devm_kzalloc( dev,  sizeof(allwinner_spi_controller_t), 
+                                            GFP_KERNEL );
+    if (!spi_host) {
+        return -ENOMEM;
+    }
+    memset(spi_host,  0,   sizeof(allwinner_spi_controller_t));
+
+    spi_host->map_base  =  map_base;
+    spi_host->phy_addr  =  phy_addr;
+
+    spi_host->controller.dev.parent  = dev;
+    // spi_host->controller.
 
     return  0;
 }

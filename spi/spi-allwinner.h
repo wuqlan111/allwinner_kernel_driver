@@ -5,7 +5,8 @@
 
 
 
-#define  ALLWINNER_TIMER_SPI_SIZE         (0x400u)
+#define  ALLWINNER_SPI_MAP_SIZE         (0x400u)
+#define  ALLWINNER_SPI_SS_COUNT         (4u)
 
 
 #endif
