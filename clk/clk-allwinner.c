@@ -16,14 +16,11 @@
 #include <linux/bitops.h>
 #include <linux/compiler-gcc.h>
 #include <linux/delay.h>
+#include <linux/resource.h>
 
 #include "clk-allwinner.h"
+#include "dbg_log.h"
 
-#define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_NOTICE(fmt, args...)    pr_notice("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 
 typedef  struct {
     struct  clk_hw  hw;
@@ -510,10 +507,22 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
     struct  device * dev =  &pdev->dev;
     struct  device_node * dev_node  =  dev->of_node;
 
+    _PRINTF_DBG("probe for pdev [ %s ]\n", pdev->name);
+
     uint32_t  phy_addr =  0;
-    if (of_property_read_u32(dev_node, "addr", &phy_addr)) {
+
+    if (dev_node && of_property_read_u32(dev_node, "addr", &phy_addr)) {
         _PRINTF_ERROR("read clk base addr failed\n");
         return -EINVAL;
+    } else {
+        struct resource * res = platform_get_resource_byname( pdev, IORESOURCE_MEM, 
+                                    DEVICE_PHY_ADDR_RESOURCE );
+        if (!res) {
+            _PRINTF_ERROR("get platform resource failed!");
+            return  -EINVAL;
+        } else {
+            _PRINTF_DBG("phy_addr:\t%#x -- %#x\n", res->start, res->end);
+        }
     }
 
     platform_drv_data_t * data  = devm_kzalloc(dev, sizeof(platform_drv_data_t), GFP_KERNEL);
@@ -561,7 +570,7 @@ static int32_t allwinner_clk_remove(struct platform_device * pdev)
 }
 
 
-static struct of_device_id allwinner_uart_ids[] =  {
+static struct of_device_id allwinner_clk_ids[] =  {
 	{.compatible = "allwinner,H6-v200-ccu"},
     {}
 };
@@ -571,8 +580,8 @@ struct  platform_driver  allwinner_clk_driver = {
     .probe   =  allwinner_clk_probe,
     .remove	 =  allwinner_clk_remove,
     .driver  =  {
-        .name  =  "allwinner_uart_driver",
-        .of_match_table  =  allwinner_uart_ids,
+        .name  =  "allwinner_ccu_driver",
+        .of_match_table  =  allwinner_clk_ids,
     }
 
 };
