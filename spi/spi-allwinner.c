@@ -37,9 +37,34 @@ typedef struct {
 } allwinner_spi_controller_t;
 
 
+static int32_t allwinner_spi_setup(struct spi_device *spi)
+{
+
+
+
+
+}
+
+
+static int32_t allwinner_spi_transfer_one_message(struct spi_controller *master,
+						struct spi_message *msg)
+{
+
+
+
+
+}
+
+
+
+
+
+
+
 
 static int32_t  allwinner_spi_probe(struct platform_device * pdev)
 {
+    int32_t  ret =  0;
     struct device * dev  = &pdev->dev;
     struct device_node * dev_node =  dev->of_node;
 
@@ -65,7 +90,24 @@ static int32_t  allwinner_spi_probe(struct platform_device * pdev)
     spi_host->phy_addr  =  phy_addr;
 
     spi_host->controller.dev.parent  = dev;
-    // spi_host->controller.
+    spi_host->controller.mode_bits  =  SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
+    spi_host->controller.num_chipselect  =  4;
+    spi_host->controller.bits_per_word_mask  =  SPI_BPW_RANGE_MASK(0, 32);
+    spi_host->controller.setup   =  allwinner_spi_setup;
+    spi_host->controller.flags   =  SPI_MASTER_MUST_RX | SPI_MASTER_MUST_TX;
+    spi_host->controller.transfer_one_message  =  allwinner_spi_transfer_one_message;
+	// spi_host->controller.cleanup = allwinner_spi_cleanup;
+	spi_host->controller.auto_runtime_pm = true;
+	spi_host->controller.max_dma_len = ALLWINNER_SPI_MAX_DMA_XFER;
+	// spi_host->controller.can_dma = allwinner_spi_can_dma;
+
+    ret  =  devm_spi_register_controller(dev,  &spi_host->controller);
+    if (ret) {
+        _PRINTF_ERROR("register spi host failed! ret = %d\n", ret);
+    } else {
+        platform_set_drvdata(pdev,  spi_host);
+    }
+
 
     return  0;
 }
@@ -73,10 +115,10 @@ static int32_t  allwinner_spi_probe(struct platform_device * pdev)
 
 static int32_t allwinner_spi_remove(struct platform_device * pdev)
 {
+    allwinner_spi_controller_t * spi_host  =  platform_get_drvdata(pdev);
 
 	return  0;
 }
-
 
 
 
