@@ -15,6 +15,8 @@
 #include <linux/clk-provider.h>
 #include <linux/bitops.h>
 #include <linux/compiler-gcc.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/resource.h>
 
@@ -36,6 +38,8 @@ static  int32_t  _allwinner_h6_pll_enable(struct clk_hw * hw)
 {
     allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
     uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    _PRINTF_DBG("enbale pll_clk [%s],\toffset = %#x\n", __clk_get_name(hw->clk), reg_offset);
 
     if (!global_map) {
         return -EINVAL;
@@ -402,11 +406,146 @@ static struct clk_init_data _pll_normal_clk_init[] = {CLK_INIT_DATAS};
 static  allwinner_clk_hw_t allwinner_clks[] = { ALLWINNER_CLKS };
 
 
+typedef struct {
+    char * name;
+    char * parent;
+    uint32_t  fix_rate;
+    uint32_t  flags;
+} allwinner_fix_clk_t;
+
+#define  FIX_CLK_DATA(clk_name, clk_parent, rate, flag)    {   \
+    .name  =  clk_name,                \
+    .parent  =  clk_parent,             \
+    .fix_rate  =  rate,              \
+    .flags  =  flag,              \
+}
+
+#define  ALLWINNER_FIX_RATE_FLAG              (0)
+const static allwinner_fix_clk_t allwinner_fix_clock_init[] = {
+    FIX_CLK_DATA("extern_32k",  NULL,  32768,  ALLWINNER_FIX_RATE_FLAG),
+    FIX_CLK_DATA("RC_16M",  NULL,  16000000,  ALLWINNER_FIX_RATE_FLAG),
+    FIX_CLK_DATA("RXCO_24M",  NULL,  24000000,  ALLWINNER_FIX_RATE_FLAG),
+};
+
+
+static void allwinner_fixed_rate_release(struct device * dev)
+{
+    struct clk_hw * hw = dev_get_drvdata(dev);
+    if (hw) {
+        clk_hw_unregister_fixed_rate(hw);
+    }
+
+    _PRINTF_DBG("remove fix rate clk [ %s ]\n", dev_name(dev));
+
+}
+
+static  int32_t  allwinner_fix_rate_clk_probe(struct  device * parent)
+{
+    struct device * dev  = NULL;
+    struct clk_hw * hw = NULL;
+    const uint32_t size  =  ARRAY_SIZE(allwinner_fix_clock_init);
+
+    for (uint32_t i =  0; i < size; i++) {
+        dev = kzalloc(sizeof(struct device), GFP_KERNEL);
+        if (!dev) {
+            return -ENOMEM;
+        }
+
+        memset(dev,  0, sizeof(struct device));
+        dev->parent  =  parent;
+
+        hw  =  clk_hw_register_fixed_rate(dev,  allwinner_fix_clock_init[i].name, 
+                            allwinner_fix_clock_init[i].parent, allwinner_fix_clock_init[i].flags,
+                            allwinner_fix_clock_init[i].fix_rate);
+        dev_set_name(dev,  allwinner_fix_clock_init[i].name);
+        if ( IS_ERR(hw) ) {
+            _PRINTF_ERROR("register fix rate clk %s failed! ret = %ld\n",  allwinner_fix_clock_init[i].name,
+                                PTR_ERR(hw));
+            return  PTR_ERR(hw);
+        }
+
+        dev_set_drvdata(dev, hw);
+        dev->release  =  allwinner_fixed_rate_release;
+        device_register(dev);
+    }
+
+    return  0;
+
+}
+
+
+typedef struct {
+    char * name;
+    char * parent;
+    uint32_t  mult;
+    uint32_t  div;
+    uint32_t  flags;
+} allwinner_fix_factor_clk_t;
+
+#define  FIX_FACTOR_CLK_DATA(clk_name, clk_parent, multi,  divisor, flag)    {   \
+    .name  =  clk_name,                \
+    .parent  =  clk_parent,             \
+    .mult  =  multi,                   \
+    .div  =  divisor,             \
+    .flags  =  flag,              \
+}
+
+#define  ALLWINNER_FIX_FACTOR_FLAG              (0)
+const static allwinner_fix_factor_clk_t allwinner_fix_factor_clock_init[] = {
+    FIX_FACTOR_CLK_DATA("pll_peri0_2x",  "pll_peri0_4x",  1,   2,   ALLWINNER_FIX_FACTOR_FLAG),
+    FIX_FACTOR_CLK_DATA("pll_peri0_1x",  "pll_peri0_4x",  1,   4,   ALLWINNER_FIX_FACTOR_FLAG),
+    FIX_FACTOR_CLK_DATA("pll_peri1_2x",  "pll_peri1_4x",  1,   2,   ALLWINNER_FIX_FACTOR_FLAG),
+    FIX_FACTOR_CLK_DATA("pll_peri1_1x",  "pll_peri1_4x",  1,   4,   ALLWINNER_FIX_FACTOR_FLAG),
+};
+
+
+static void allwinner_fixed_factor_release(struct device * dev)
+{
+    struct clk_hw * hw = dev_get_drvdata(dev);
+    if (hw) {
+        clk_hw_unregister_fixed_factor(hw);
+    }
+
+    _PRINTF_DBG("remove fix factor clk [ %s ]\n", dev_name(dev));
+
+}
+
+static  int32_t  allwinner_fix_factor_clk_probe(struct  device * parent)
+{
+    struct device * dev  = NULL;
+    struct clk_hw * hw = NULL;
+    const uint32_t size  =  ARRAY_SIZE(allwinner_fix_factor_clock_init);
+
+    for (uint32_t i =  0; i < size; i++) {
+        dev =  kzalloc(sizeof(struct device), GFP_KERNEL);
+        if (!dev) {
+            return -ENOMEM;
+        }
+
+        memset(dev,  0, sizeof(struct device));
+        dev->parent  =  parent;
+
+        hw  =  clk_hw_register_fixed_factor(dev,  allwinner_fix_factor_clock_init[i].name, 
+                            allwinner_fix_factor_clock_init[i].parent, allwinner_fix_factor_clock_init[i].flags,
+                            allwinner_fix_factor_clock_init[i].mult, allwinner_fix_factor_clock_init->div);
+        dev_set_name(dev,  allwinner_fix_factor_clock_init[i].name);
+        if ( IS_ERR(hw) ) {
+            _PRINTF_ERROR("register fix factor clk %s failed! ret = %ld\n",  allwinner_fix_factor_clock_init[i].name,
+                                                    PTR_ERR(hw));
+            return  PTR_ERR(hw);
+        }
+
+        dev_set_drvdata(dev, hw);
+        dev->release  =  allwinner_fixed_factor_release;
+        device_register(dev);
+    }
+
+    return  0;
+
+}
 
 
 
-
-#define  TYPE_CASE(x)         case x: return #x;
 static char * allwinner_clk_2_str(const uint32_t clk)
 {
 
@@ -521,7 +660,7 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
             _PRINTF_ERROR("get platform resource failed!");
             return  -EINVAL;
         } else {
-            _PRINTF_DBG("phy_addr:\t%#x -- %#x\n", res->start, res->end);
+            _PRINTF_DBG("phy_addr:\t%#llx -- %#llx\n", res->start, res->end);
         }
     }
 
@@ -535,6 +674,8 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
     if (IS_ERR(map)) {
         _PRINTF_ERROR("map  ccu phy addr to kernel failed!\n");
 		return  PTR_ERR(map);
+    } else {
+        _PRINTF_DBG("map phy_addr %#x to virt 0x%p\n",   phy_addr,  map );
     }
 
     global_map  =  map;
@@ -542,20 +683,27 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
     data->phy_addr  =  phy_addr;
     platform_set_drvdata(pdev, data);
 
-    uint32_t size  = ARRAY_SIZE(allwinner_clks);
-    for ( uint32_t i =  0; i < size; i++) {
-        if ( !allwinner_clks[i].hw.init->ops || (allwinner_clks[i].clk_id != i) ) {
-            continue;
-        }
-
-		ret = devm_clk_hw_register(dev, &allwinner_clks[i].hw);
-		if (ret) {
-            _PRINTF_ERROR("register clk_hw %s failed! ret = %d\n", allwinner_clk_2_str(i),  ret);
-			return ret;
-        }
+    ret  =  allwinner_fix_rate_clk_probe(dev);
+    if (ret) {
+        return  ret;
     }
 
-    ret  =  of_clk_add_hw_provider(dev_node, allwinner_of_clk_get, NULL);
+    ret  =  allwinner_fix_factor_clk_probe(dev);
+
+    // uint32_t size  = ARRAY_SIZE(allwinner_clks);
+    // for ( uint32_t i =  0; i < size; i++) {
+    //     if ( !allwinner_clks[i].hw.init->ops || (allwinner_clks[i].clk_id != i) ) {
+    //         continue;
+    //     }
+
+	// 	ret = devm_clk_hw_register(dev, &allwinner_clks[i].hw);
+	// 	if (ret) {
+    //         _PRINTF_ERROR("register clk_hw %s failed! ret = %d\n", allwinner_clk_2_str(i),  ret);
+	// 		return ret;
+    //     }
+    // }
+
+    // ret  =  of_clk_add_hw_provider(dev_node, allwinner_of_clk_get, NULL);
 	return   ret;
 
 }

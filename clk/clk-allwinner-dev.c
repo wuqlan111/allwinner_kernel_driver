@@ -45,6 +45,7 @@ static struct platform_device  allwinner_clk_dev =  {
     .name  =  "allwinner_ccu_driver",
     .id  =  PLATFORM_DEVID_NONE,
     .resource  =  dev_res,
+    .num_resources  =  ARRAY_SIZE(dev_res),
     .dev  =  { 
         .release  = allwinner_clk_dev_release,
     },

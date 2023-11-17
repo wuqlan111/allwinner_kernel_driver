@@ -2,7 +2,8 @@
     "files.associations": {
         "Kconfig": "kconfig",
         "*.h": "c",
-        "*.c": "c"
+        "*.c": "c",
+        "typeinfo": "c"
     },
 
     "C_Cpp.autocomplete": "default",
