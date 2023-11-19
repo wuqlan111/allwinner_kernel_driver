@@ -5,6 +5,7 @@
 
 #define  ALLWINNER_CLK_REG_INVALID           (0xffffffu)
 
+
 // pll clk
 #define  ALLWINNER_PLL_CPUX         0
 #define  ALLWINNER_PLL_DDR0         1
@@ -69,6 +70,12 @@
 #define  ALLWINNER_CLK_UART2                     58
 #define  ALLWINNER_CLK_UART3                     59
 
+#define  ALLWINNER_FIXED_EXTERN_32K               ALLWINNER_CLK_UART3
+#define  ALLWINNER_FIXED_RC_16M                   (ALLWINNER_FIXED_EXTERN_32K + 1)
+#define  ALLWINNER_FIXED_DCXO                     (ALLWINNER_FIXED_EXTERN_32K + 2)
+
+#define  ALLWINNER_MAX_CLK_ID                     ALLWINNER_FIXED_DCXO
+
 #define  ALLWINNER_PLL_MAX         ALLWINNER_PLL_AUDIO
 #define  ALLWINNER_CLK_UARTX       ALLWINNER_CLK_APB2
 
@@ -79,7 +86,7 @@
 #define  ALLWINNER_H6_PLLX_FACTOR_N            GENMASK(15,   8)
 
 
-#define  ALLWINNER_CCU_MAP_SIZE        (0x2000u)
+#define  ALLWINNER_CCU_MAP_SIZE        (0x1000u)
 
 #define  ALLWINNER_PLLX_SRC_CLK        (24000000u)
 

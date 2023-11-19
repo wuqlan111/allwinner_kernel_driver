@@ -20,8 +20,8 @@
 
 #include "dbg_log.h"
 
-#define  ALLWINNER_CCU_MAP_SIZE        (0x2000u)
-#define  ALLWINNER_CCU_BASE_ADDR       (0x03000000u)
+#define  ALLWINNER_CCU_MAP_SIZE        (0x1000u)
+#define  ALLWINNER_CCU_BASE_ADDR       (0xc0000u)
 
 static struct resource  dev_res[]  =  {
     {
