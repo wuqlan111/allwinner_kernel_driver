@@ -478,54 +478,34 @@ static irqreturn_t allwinner_gpio_irq_handler(int32_t irq, void * dev_id)
         return  IRQ_HANDLED;
     }
 
-	pm_runtime_get_sync(gpio_data->gpio_chip.parent);
-
     uint32_t  enable, isr,  bit;
+    enable =  isr = bit =  0;
 	while (1) {
 		raw_spin_lock_irqsave(&gpio_data->lock, lock_flags);
 
-        enable  =  readl_relaxed(&int_regs->cfgx);
-
-		/* clear edge sensitive interrupts before handler(s) are
-		called so that we don't miss any interrupt occurred while
-		executing them */
-		// if (isr & ~level_mask)
-			// omap_clear_gpio_irqbank(bank, isr & ~level_mask);
+        enable  =  readl_relaxed(&int_regs->ctrl);
+        isr   =  readl_relaxed(&int_regs->sta) & enable;
 
 		raw_spin_unlock_irqrestore(&gpio_data->lock, lock_flags);
 
-		if (!isr)
-			break;
+		if (!isr) {
+			break; 
+        }
 
 		while (isr) {
 			bit = __ffs(isr);
 			isr &= ~(BIT(bit));
 
-			raw_spin_lock_irqsave(&gpio_data->lock, lock_flags);
-			/*
-			 * Some chips can't respond to both rising and falling
-			 * at the same time.  If this irq was requested with
-			 * both flags, we need to flip the ICR data for the IRQ
-			 * to respond to the IRQ for the opposite direction.
-			 * This will be indicated in the bank toggle_mask.
-			 */
-			// if (bank->toggle_mask & (BIT(bit)))
-				// omap_toggle_gpio_edge_triggering(bank, bit);
-
-			raw_spin_unlock_irqrestore(&gpio_data->lock, lock_flags);
-
-			// raw_spin_lock_irqsave(&gpio_data->wa_lock, wa_lock_flags);
+            raw_spin_lock_irqsave(&gpio_data->lock, lock_flags);
+            writel_relaxed(BIT(bit), &int_regs->sta);
+            raw_spin_unlock_irqrestore(&gpio_data->lock, lock_flags);
 
 			generic_handle_irq(irq_find_mapping(gpio_data->gpio_chip.irq.domain,
-							    bit));		//根据引脚编号获取软irq进行处理
-
-			// raw_spin_unlock_irqrestore(&bank->wa_lock,
-			// 			   wa_lock_flags);
+							    bit));
 		}
 	}
-exit:
-	pm_runtime_put(gpio_data->gpio_chip.parent);
-	return IRQ_HANDLED;
+
+	return  IRQ_HANDLED;
 }
 
 
@@ -551,19 +531,31 @@ static int32_t allwinner_gpio_chip_init(allwinner_h6_gpio_plat_t * gpio_data, st
     gpio_data->gpio_chip.set_config  =  allwinner_gpio_set_config;
     gpio_data->gpio_chip.set  =  allwinner_gpio_set;
 
-	ret = gpiochip_add_data(&gpio_data->gpio_chip,  gpio_data);
-	if (ret) {
-		_PRINTF_ERROR("allwinner register gpio driver failed!\n");
-		return  ret;
+
+    //alloc virtual irq desc
+    int32_t  irq_base  =  0;
+    irq_base = devm_irq_alloc_descs(gpio_data->gpio_chip.parent,
+					-1, 0, gpio_data->gpio_chip.ngpio, 0);
+	if (irq_base < 0) {
+		_PRINTF_ERROR("Couldn't allocate IRQ numbers\n");
+		return -ENODEV;
 	}
 
-	ret = gpiochip_irqchip_add(&gpio_data->gpio_chip, irqc, gpio_data->hw_irq, handle_bad_irq,
+	ret = gpiochip_irqchip_add(&gpio_data->gpio_chip, irqc, irq_base, handle_bad_irq,
 				   IRQ_TYPE_NONE);
 	if (ret) {
 		_PRINTF_ERROR("Couldn't add irqchip to gpiochip!\n");
 		gpiochip_remove(&gpio_data->gpio_chip);
 		return -ENODEV;
 	}
+
+	ret = gpiochip_add_data(&gpio_data->gpio_chip,  gpio_data);
+	if (ret) {
+		_PRINTF_ERROR("allwinner register gpio driver failed!\n");
+		return  ret;
+	}
+
+    // gpiochip_set_chained_irqchip(&gpio_data->gpio_chip, irqc, gpio_data->hw_irq, NULL);
 
 	ret = devm_request_irq(gpio_data->gpio_chip.parent, gpio_data->hw_irq,
 			       NULL,
@@ -646,17 +638,8 @@ static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
 
 	platform_set_drvdata(pdev, gpio_data);
 
-	pm_runtime_enable(dev);
-	pm_runtime_irq_safe(dev);
-	pm_runtime_get_sync(dev);
 
     ret = allwinner_gpio_chip_init(gpio_data, irqc);
-	if (ret) {
-		pm_runtime_put_sync(dev);
-		pm_runtime_disable(dev);
-		return ret;
-	}
-
 
     return   ret;
 
