@@ -367,7 +367,7 @@ static void allwinner_gpio_irq_shutdown(struct irq_data *d)
 
 	raw_spin_lock_irqsave(&gpio_data->lock, flags);
 	allwinner_gpio_set_irq_state(regs, offset, 0);
-    writel_relaxed(1 << offset,  &regs->sta);
+    writel_relaxed(BIT(offset),  &regs->sta);
 	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
 
 }
@@ -386,7 +386,7 @@ static void allwinner_gpio_ack_irq(struct irq_data *d)
     }
 
 	raw_spin_lock_irqsave(&gpio_data->lock, flags);
-    writel_relaxed(1 << offset,  &regs->sta);
+    writel_relaxed(BIT(offset),  &regs->sta);
 	raw_spin_unlock_irqrestore(&gpio_data->lock, flags);
 }
 
