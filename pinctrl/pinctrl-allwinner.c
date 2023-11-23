@@ -28,7 +28,8 @@
 #define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 
 #define  PINCTRL_BANK_MAX_PIN       32
-#define  PINCTRL_PIN_NUMBER(bank, offset)         (  (bank) << 8 | (offset) )
+#define  PINCTRL_PIN_NUMBER(bank, offset)         (  ((bank) << 8) | (offset) )
+#define  ALLWINNER_PIN_NUMBER(bank, pin)        PINCTRL_PIN_NUMBER(ALLWINNER_BANK_##bank, pin) 
 
 #define PINCTRL_PHY_ADDR_BASE              (0x0300b000u)
 #define PINCTRL_R_PHY_ADDR_BASE            (0x07022000u)
@@ -62,10 +63,10 @@ typedef  struct {
 } allwinner_pmx_func_t;
 
 typedef struct {
+    char * name;    
 	uint8_t  bank;
-	uint8_t  pin;
-	uint16_t mux;
-	uint64_t  conf;
+	uint8_t  offset;
+    uint16_t  pin;
 } allwinner_pmx_pin_t;
 
 typedef struct { 
@@ -106,6 +107,62 @@ typedef struct {
     uint32_t  drvx[2];
     uint32_t  pullx[2];
 } __packed allwinner_h6_pin_config_t;
+
+
+
+//pins of each group
+const static uint16_t nand_pins[] = {
+    ALLWINNER_PIN_NUMBER(PC, 0), ALLWINNER_PIN_NUMBER(PC, 1), ALLWINNER_PIN_NUMBER(PC, 2),
+    ALLWINNER_PIN_NUMBER(PC, 3), ALLWINNER_PIN_NUMBER(PC, 4), ALLWINNER_PIN_NUMBER(PC, 5),
+    ALLWINNER_PIN_NUMBER(PC, 6), ALLWINNER_PIN_NUMBER(PC, 7), ALLWINNER_PIN_NUMBER(PC, 8),
+    ALLWINNER_PIN_NUMBER(PC, 9), ALLWINNER_PIN_NUMBER(PC, 10), ALLWINNER_PIN_NUMBER(PC, 11),
+    ALLWINNER_PIN_NUMBER(PC, 12), ALLWINNER_PIN_NUMBER(PC, 13), ALLWINNER_PIN_NUMBER(PC, 14),
+    ALLWINNER_PIN_NUMBER(PC, 15),  ALLWINNER_PIN_NUMBER(PC, 16), };
+
+const static uint16_t spi0_pins[] = {
+    ALLWINNER_PIN_NUMBER(PC, 0), ALLWINNER_PIN_NUMBER(PC, 2), ALLWINNER_PIN_NUMBER(PC, 3), 
+    ALLWINNER_PIN_NUMBER(PC, 5), ALLWINNER_PIN_NUMBER(PC, 6), ALLWINNER_PIN_NUMBER(PC, 7), 
+};
+
+const static uint16_t spi1_pins[] = {
+    ALLWINNER_PIN_NUMBER(PH, 3), ALLWINNER_PIN_NUMBER(PH, 4), ALLWINNER_PIN_NUMBER(PH, 5), 
+    ALLWINNER_PIN_NUMBER(PH, 6), };
+
+
+const static uint16_t uart0_pins[] = {
+    ALLWINNER_PIN_NUMBER(PF, 2), ALLWINNER_PIN_NUMBER(PF, 4), };
+
+const static uint16_t uart1_pins[] = {
+    ALLWINNER_PIN_NUMBER(PG, 6), ALLWINNER_PIN_NUMBER(PG, 7), };
+
+const static uint16_t uart2_pins[] = {
+    ALLWINNER_PIN_NUMBER(PD, 19), ALLWINNER_PIN_NUMBER(PD, 20), ALLWINNER_PIN_NUMBER(PD, 21), 
+    ALLWINNER_PIN_NUMBER(PD, 22), };
+
+
+const static uint16_t uart3_pins[] = {
+    ALLWINNER_PIN_NUMBER(PD, 23), ALLWINNER_PIN_NUMBER(PD, 24), ALLWINNER_PIN_NUMBER(PD, 25), 
+    ALLWINNER_PIN_NUMBER(PD, 26), };
+
+
+const static uint16_t sdc0_pins[] = {
+    ALLWINNER_PIN_NUMBER(PF, 0), ALLWINNER_PIN_NUMBER(PF, 1), ALLWINNER_PIN_NUMBER(PF, 2), 
+    ALLWINNER_PIN_NUMBER(PF, 3), ALLWINNER_PIN_NUMBER(PF, 4), ALLWINNER_PIN_NUMBER(PF, 5),
+};
+
+
+const static uint16_t sdc1_pins[] = {
+    ALLWINNER_PIN_NUMBER(PG, 0), ALLWINNER_PIN_NUMBER(PG, 1), ALLWINNER_PIN_NUMBER(PG, 2), 
+    ALLWINNER_PIN_NUMBER(PG, 3), ALLWINNER_PIN_NUMBER(PG, 4), ALLWINNER_PIN_NUMBER(PG, 5),
+};
+
+const static uint16_t sdc2_pins[] = {
+    ALLWINNER_PIN_NUMBER(PC, 1), ALLWINNER_PIN_NUMBER(PC, 4), ALLWINNER_PIN_NUMBER(PC, 5), 
+    ALLWINNER_PIN_NUMBER(PC, 6), ALLWINNER_PIN_NUMBER(PC, 7), ALLWINNER_PIN_NUMBER(PC, 8),
+    ALLWINNER_PIN_NUMBER(PC, 9), ALLWINNER_PIN_NUMBER(PC, 10), ALLWINNER_PIN_NUMBER(PC, 11),
+    ALLWINNER_PIN_NUMBER(PC, 12), ALLWINNER_PIN_NUMBER(PC, 13), ALLWINNER_PIN_NUMBER(PC, 14),
+};
+
 
 
 static int32_t allwinner_get_groups_count(struct pinctrl_dev *pctldev)
@@ -250,14 +307,14 @@ static void  allwinner_pinctrl_function_groups(struct device_node * np_node,  al
 
     pinctrl_desc->ngroups  =  0;
     pinctrl_desc->nfunctions =  0;
-	for_each_child_of_node(np_node, child) {
-		if (of_device_is_compatible(child, ALLWINNER_GPIO_COMPAILE)) {
-			continue;
-		} else {
-			pinctrl_desc->nfunctions++;
-			pinctrl_desc->ngroups += of_get_child_count(child);
-		}
-	}
+	// for_each_child_of_node(np_node, child) {
+	// 	if (of_device_is_compatible(child, ALLWINNER_GPIO_COMPAILE)) {
+	// 		continue;
+	// 	} else {
+	// 		pinctrl_desc->nfunctions++;
+	// 		pinctrl_desc->ngroups += of_get_child_count(child);
+	// 	}
+	// }
 }
 
 
@@ -288,8 +345,8 @@ static int32_t allwinner_pinctrl_parse_groups(struct device * dev,  struct devic
 
         grp->pins_conf[i].bank   =  be32_to_cpu(list[tmp_idx]);
         grp->pins_conf[i].pin    =  be32_to_cpu(list[tmp_idx+1]);
-        grp->pins_conf[i].mux    =  be32_to_cpu(list[tmp_idx+2]);
-        grp->pins_conf[i].conf   =  be32_to_cpu(list[tmp_idx+3]);
+        // grp->pins_conf[i].mux    =  be32_to_cpu(list[tmp_idx+2]);
+        // grp->pins_conf[i].conf   =  be32_to_cpu(list[tmp_idx+3]);
 
 		grp->pins[i] = PINCTRL_PIN_NUMBER(grp->pins_conf[i].bank, grp->pins_conf[i].pin);
 
@@ -320,9 +377,9 @@ static int32_t allwinner_pinctrl_probe_np(struct platform_device * pdev, allwinn
     uint32_t  func_idx, group_idx; 
     func_idx  =  group_idx = 0;
 	for_each_child_of_node(dev_node, func_child) {
-		if (of_device_is_compatible(func_child, ALLWINNER_GPIO_COMPAILE)) {
-			continue;            
-        }
+		// if (of_device_is_compatible(func_child, ALLWINNER_GPIO_COMPAILE)) {
+		// 	continue;            
+        // }
 
         pinctrl_desc->functions[func_idx].name  = func_child->name;
         uint32_t  func_groups =  of_get_child_count(func_child);

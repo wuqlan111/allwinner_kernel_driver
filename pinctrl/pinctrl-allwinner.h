@@ -11,8 +11,6 @@
 #define  ALLWINNER_BANK_PL_PINS    11
 #define  ALLWINNER_BANK_PM_PINS    5
 
-#define ALLWINNER_GPIO_COMPAILE   ""
-
 
 typedef enum {
     ALLWINNER_BANK_PA =  0,
