@@ -13,6 +13,7 @@
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/pinctrl/pinctrl.h>
+#include <linux/pinctrl/pinconf-generic.h>
 #include <linux/pinctrl/pinmux.h>
 #include <linux/pinctrl/pinconf.h>
 #include <linux/bitops.h>
@@ -29,10 +30,14 @@
 
 #define  PINCTRL_BANK_MAX_PIN       32
 #define  PINCTRL_PIN_NUMBER(bank, offset)         (  ((bank) << 8) | (offset) )
-#define  ALLWINNER_PIN_NUMBER(bank, pin)        PINCTRL_PIN_NUMBER(ALLWINNER_BANK_##bank, pin) 
+#define  ALLWINNER_PIN_NUMBER(bank, offset)        PINCTRL_PIN_NUMBER(ALLWINNER_BANK_##bank, offset) 
+#define  PIN_NUMBER_BANK(pin)               (((pin) >> 8) & 0xff)
+#define  PIN_NUMBER_OFFSET(pin)             ((pin) & 0xff)
 
 #define PINCTRL_PHY_ADDR_BASE              (0x0300b000u)
 #define PINCTRL_R_PHY_ADDR_BASE            (0x07022000u)
+#define PINCTRL_CFG_STEP        (0x24u)
+#define PIN_GROUP_NO_CONFIG_PMX        (0xffffu)
 
 typedef  struct {
     char * bank_name;
@@ -71,10 +76,17 @@ typedef struct {
 
 typedef struct { 
 	const char	*name;
-	allwinner_pmx_pin_t	*pins_conf;
-    uint32_t  * pins;
+	// allwinner_pmx_pin_t	*pins_conf;
+    const uint32_t  * pins;
+    const uint32_t  function;
+    const uint32_t  pins_cfg;
 	uint32_t  npins;
 } allwinner_pin_group_t;
+
+typedef struct { 
+    uint32_t  cur_function;
+    uint32_t  pmx_count;
+} allwinner_pin_group_state_t;
 
 typedef struct {
 	struct device		* dev;
@@ -86,20 +98,18 @@ typedef struct {
 	uint32_t ngroups;
     void * pinctrl_membase;
     void * pinctrl_r_membase;
+    allwinner_pin_group_state_t * groups_state;
 } allwinner_pinctrl_desc_t;
 
 typedef struct {
     uint32_t number;
     uint32_t pins;
     allwinner_pin_bank_t * bank_info;
-} allwinner_pinctrl_platform_mach_t;
-
-static  allwinner_pinctrl_platform_mach_t h6_v200_platdata = {
-    .number = ARRAY_SIZE(allwinner_h6_bank_info), 
-    .bank_info  =  allwinner_h6_bank_info,
-    .pins  =  93,
-};
-
+    allwinner_pmx_func_t * functions;
+	uint32_t nfunctions;
+	allwinner_pin_group_t * groups;
+	uint32_t ngroups;
+} allwinner_pinctrl_platform_data_t;
 
 typedef struct {
     uint32_t  cfgx[4];
@@ -111,7 +121,7 @@ typedef struct {
 
 
 //pins of each group
-const static uint16_t nand_pins[] = {
+const static uint32_t nand_pins[] = {
     ALLWINNER_PIN_NUMBER(PC, 0), ALLWINNER_PIN_NUMBER(PC, 1), ALLWINNER_PIN_NUMBER(PC, 2),
     ALLWINNER_PIN_NUMBER(PC, 3), ALLWINNER_PIN_NUMBER(PC, 4), ALLWINNER_PIN_NUMBER(PC, 5),
     ALLWINNER_PIN_NUMBER(PC, 6), ALLWINNER_PIN_NUMBER(PC, 7), ALLWINNER_PIN_NUMBER(PC, 8),
@@ -119,50 +129,97 @@ const static uint16_t nand_pins[] = {
     ALLWINNER_PIN_NUMBER(PC, 12), ALLWINNER_PIN_NUMBER(PC, 13), ALLWINNER_PIN_NUMBER(PC, 14),
     ALLWINNER_PIN_NUMBER(PC, 15),  ALLWINNER_PIN_NUMBER(PC, 16), };
 
-const static uint16_t spi0_pins[] = {
+const static uint32_t spi0_pins[] = {
     ALLWINNER_PIN_NUMBER(PC, 0), ALLWINNER_PIN_NUMBER(PC, 2), ALLWINNER_PIN_NUMBER(PC, 3), 
     ALLWINNER_PIN_NUMBER(PC, 5), ALLWINNER_PIN_NUMBER(PC, 6), ALLWINNER_PIN_NUMBER(PC, 7), 
 };
 
-const static uint16_t spi1_pins[] = {
+const static uint32_t spi1_pins[] = {
     ALLWINNER_PIN_NUMBER(PH, 3), ALLWINNER_PIN_NUMBER(PH, 4), ALLWINNER_PIN_NUMBER(PH, 5), 
     ALLWINNER_PIN_NUMBER(PH, 6), };
 
 
-const static uint16_t uart0_pins[] = {
+const static uint32_t uart0_pins[] = {
     ALLWINNER_PIN_NUMBER(PF, 2), ALLWINNER_PIN_NUMBER(PF, 4), };
 
-const static uint16_t uart1_pins[] = {
+const static uint32_t uart1_pins[] = {
     ALLWINNER_PIN_NUMBER(PG, 6), ALLWINNER_PIN_NUMBER(PG, 7), };
 
-const static uint16_t uart2_pins[] = {
+const static uint32_t uart2_pins[] = {
     ALLWINNER_PIN_NUMBER(PD, 19), ALLWINNER_PIN_NUMBER(PD, 20), ALLWINNER_PIN_NUMBER(PD, 21), 
     ALLWINNER_PIN_NUMBER(PD, 22), };
 
 
-const static uint16_t uart3_pins[] = {
+const static uint32_t uart3_pins[] = {
     ALLWINNER_PIN_NUMBER(PD, 23), ALLWINNER_PIN_NUMBER(PD, 24), ALLWINNER_PIN_NUMBER(PD, 25), 
     ALLWINNER_PIN_NUMBER(PD, 26), };
 
 
-const static uint16_t sdc0_pins[] = {
+const static uint32_t sdc0_pins[] = {
     ALLWINNER_PIN_NUMBER(PF, 0), ALLWINNER_PIN_NUMBER(PF, 1), ALLWINNER_PIN_NUMBER(PF, 2), 
     ALLWINNER_PIN_NUMBER(PF, 3), ALLWINNER_PIN_NUMBER(PF, 4), ALLWINNER_PIN_NUMBER(PF, 5),
 };
 
 
-const static uint16_t sdc1_pins[] = {
+const static uint32_t sdc1_pins[] = {
     ALLWINNER_PIN_NUMBER(PG, 0), ALLWINNER_PIN_NUMBER(PG, 1), ALLWINNER_PIN_NUMBER(PG, 2), 
     ALLWINNER_PIN_NUMBER(PG, 3), ALLWINNER_PIN_NUMBER(PG, 4), ALLWINNER_PIN_NUMBER(PG, 5),
 };
 
-const static uint16_t sdc2_pins[] = {
+const static uint32_t sdc2_pins[] = {
     ALLWINNER_PIN_NUMBER(PC, 1), ALLWINNER_PIN_NUMBER(PC, 4), ALLWINNER_PIN_NUMBER(PC, 5), 
     ALLWINNER_PIN_NUMBER(PC, 6), ALLWINNER_PIN_NUMBER(PC, 7), ALLWINNER_PIN_NUMBER(PC, 8),
     ALLWINNER_PIN_NUMBER(PC, 9), ALLWINNER_PIN_NUMBER(PC, 10), ALLWINNER_PIN_NUMBER(PC, 11),
     ALLWINNER_PIN_NUMBER(PC, 12), ALLWINNER_PIN_NUMBER(PC, 13), ALLWINNER_PIN_NUMBER(PC, 14),
 };
 
+
+enum {
+    ALLWINNER_FUNC_NAND =  0,
+    ALLWINNER_FUNC_SPI,
+    ALLWINNER_FUNC_UART,
+    ALLWINNER_FUNC_SDC,
+    ALLWINNER_FUNC_MAX = ALLWINNER_FUNC_SDC, 
+} allwinner_pinctrl_function_e;
+
+static const char * nand_groups[] = { "nand" };
+static const char * spi_groups[]  = { "spi0",  "spi1" };
+static const char * uart_groups[] = { "uart0", "uart1", "uart2", "uart3" };
+static const char * sdc_groups[] = { "sdc0", "sdc1", "sdc2" };
+
+#define ALLWINNER_FUNCTION(id, fname)  [ ALLWINNER_FUNC_##id ]  =  {  \
+            .name  =  #fname,       \
+            .groups = fname##_groups,        \
+            .ngroups =  ARRAY_SIZE(fname##_groups),   \
+}
+
+const static allwinner_pmx_func_t allwinner_h6_functions[] = {
+    ALLWINNER_FUNCTION(NAND, nand),
+    ALLWINNER_FUNCTION(SPI, spi),
+    ALLWINNER_FUNCTION(UART, uart),
+    ALLWINNER_FUNCTION(SDC, sdc),
+};
+
+#define ALLWINNER_GROUP(fname, func, af) {   \
+    .name =  #fname,          \
+    .pins = fname##_pins,         \
+    .function =  ALLWINNER_FUNC_##func,       \
+    .pins_cfg  =  ALLWINNER_H6_PINMUX_##af,       \
+    .npins = ARRAY_SIZE(fname##_pins),   \
+}
+
+const static allwinner_pin_group_t allwinner_h6_groups[] = {
+    ALLWINNER_GROUP(nand, NAND,  AF2),
+    ALLWINNER_GROUP(spi0, SPI,   AF4),
+    ALLWINNER_GROUP(spi1, SPI,   AF2),
+    ALLWINNER_GROUP(uart0,  UART,   AF3),
+    ALLWINNER_GROUP(uart1,  UART,   AF2),
+    ALLWINNER_GROUP(uart2,  UART,   AF4),
+    ALLWINNER_GROUP(uart3,  UART,   AF4),
+    ALLWINNER_GROUP(sdc0,   SDC,    AF2),
+    ALLWINNER_GROUP(sdc1,   SDC,    AF2),
+    ALLWINNER_GROUP(sdc2,   SDC,    AF3),
+};
 
 
 static int32_t allwinner_get_groups_count(struct pinctrl_dev *pctldev)
@@ -270,6 +327,29 @@ static int32_t  allwinner_pmx_get_groups(struct pinctrl_dev *pctldev, uint32_t s
 static int32_t allwinner_pmx_set(struct pinctrl_dev *pctldev, uint32_t func_selector,
 			uint32_t group_selector)
 {
+    allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
+    const uint32_t  cur_function = pinctrl->groups[group_selector].function ;
+
+    if (cur_function != func_selector) {
+        _PRINTF_ERROR("group %s don't support function %s\n", pinctrl->groups[group_selector].name,
+                    pinctrl->functions[func_selector].name);
+        return  -ENOTSUPP;
+    }
+
+    if  (cur_function == func_selector) {
+        _PRINTF_WARN("group %s has been config function %s\n", pinctrl->groups[group_selector].name,
+                    pinctrl->functions[func_selector].name);
+        return   0;
+    }
+
+    if (cur_function == PIN_GROUP_NO_CONFIG_PMX) {
+        _PRINTF_ERROR("group %s has been config other function %s\n", 
+                    pinctrl->groups[group_selector].name, pinctrl->functions[cur_function].name);
+        return   -EINVAL;
+    }
+
+    
+
     return  0;
 }
 
@@ -284,12 +364,82 @@ static const struct pinmux_ops allwinner_pmx_ops = {
 static int32_t  allwinner_pinconf_get(struct pinctrl_dev *pctldev,
 			    uint32_t pin_id, unsigned long * config)
 {
+    allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
+    const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
+    const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
+    enum pin_config_param param = pinconf_to_config_param(*config);
+
+    uint32_t * base_addr = bank < ALLWINNER_BANK_PL? pinctrl->pinctrl_membase:
+                                        pinctrl->pinctrl_r_membase;
+    uint32_t  cfg_offset = bank < ALLWINNER_BANK_PL? bank: bank - ALLWINNER_BANK_PL;
+
+    allwinner_h6_pin_config_t * regs =  (allwinner_h6_pin_config_t *)&base_addr[(cfg_offset * PINCTRL_CFG_STEP) >> 2 ];
+
+    const uint32_t reg_idx = ALLWINNNER_H6_PIN_PULL_IDX(offset);
+    const uint32_t shift = ALLWINNNER_H6_PIN_PULL_SHIFT(offset);
+    const uint32_t pull_type = (readl_relaxed(&regs->pullx[reg_idx]) >> shift) 
+                                & ALLWINNNER_H6_PIN_PULL_MASK;
+    uint32_t args = 0;
+    switch (param) {
+        case  PIN_CONFIG_BIAS_PULL_DOWN:
+            args = pull_type == ALLWINNER_H6_GPIO_PUPD_DOWN? 1: 0;
+            break;
+
+        case  PIN_CONFIG_BIAS_PULL_UP:
+            args = pull_type == ALLWINNER_H6_GPIO_PUPD_UP? 1: 0;
+            break;
+        
+        default:
+            return -ENOTSUPP;
+    }
+	
+    *config = pinconf_to_config_packed(param, args);
+
 	return 0;
 }
 
 static int32_t allwinner_pinconf_set(struct pinctrl_dev *pctldev, uint32_t pin_id, 
                 unsigned long *configs,  uint32_t num_configs)
 {
+    allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
+    const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
+    const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
+
+
+    uint32_t * base_addr = bank < ALLWINNER_BANK_PL? pinctrl->pinctrl_membase:
+                                        pinctrl->pinctrl_r_membase;
+    uint32_t  cfg_offset = bank < ALLWINNER_BANK_PL? bank: bank - ALLWINNER_BANK_PL;
+
+    allwinner_h6_pin_config_t * regs =  (allwinner_h6_pin_config_t *)&base_addr[(cfg_offset * PINCTRL_CFG_STEP) >> 2 ];
+
+    const uint32_t reg_idx = ALLWINNNER_H6_PIN_PULL_IDX(offset);
+    const uint32_t shift = ALLWINNNER_H6_PIN_PULL_SHIFT(offset);
+
+
+    for (uint32_t  i  =  0; i < num_configs; i++) {
+        enum pin_config_param param = pinconf_to_config_param(configs[i]);
+        uint32_t args = pinconf_to_config_argument(configs[i]);
+
+        uint32_t pull_type = (readl_relaxed(&regs->pullx[reg_idx]) >> shift) 
+                                & ALLWINNNER_H6_PIN_PULL_MASK;        
+
+        switch (param) {
+            case  PIN_CONFIG_BIAS_PULL_DOWN:
+            case  PIN_CONFIG_BIAS_PULL_UP:
+                pull_type &= ~(ALLWINNNER_H6_PIN_PULL_MASK<<shift);
+                if (param == PIN_CONFIG_BIAS_PULL_DOWN) {
+                    pull_type  |= ALLWINNER_H6_GPIO_PUPD_DOWN << shift; 
+                } else {
+                    pull_type  |= ALLWINNER_H6_GPIO_PUPD_UP << shift;
+                }
+                writel_relaxed(pull_type,  &regs->pullx[reg_idx]);
+                break;
+            
+            default:
+                return -ENOTSUPP;
+        }
+    }
+
     return  0;
 }
 
@@ -333,78 +483,26 @@ static int32_t allwinner_pinctrl_parse_groups(struct device * dev,  struct devic
 	}
 
 	grp->npins = times >> 2;
-	grp->pins_conf = devm_kzalloc(dev, grp->npins * sizeof(allwinner_pmx_pin_t),
-				GFP_KERNEL);
-	grp->pins = devm_kzalloc(dev, grp->npins * sizeof(uint32_t), GFP_KERNEL);
-	if (!grp->pins_conf || !grp->pins) {
-		return -ENOMEM;        
-    }
+	// grp->pins_conf = devm_kzalloc(dev, grp->npins * sizeof(allwinner_pmx_pin_t),
+	// 			GFP_KERNEL);
+	// grp->pins = devm_kzalloc(dev, grp->npins * sizeof(uint32_t), GFP_KERNEL);
+	// if (!grp->pins_conf || !grp->pins) {
+	// 	return -ENOMEM;        
+    // }
 
 	for (uint32_t i = 0; i < grp->npins; i++) {
         uint32_t tmp_idx = i << 2;
 
-        grp->pins_conf[i].bank   =  be32_to_cpu(list[tmp_idx]);
-        grp->pins_conf[i].pin    =  be32_to_cpu(list[tmp_idx+1]);
+        // grp->pins_conf[i].bank   =  be32_to_cpu(list[tmp_idx]);
+        // grp->pins_conf[i].pin    =  be32_to_cpu(list[tmp_idx+1]);
         // grp->pins_conf[i].mux    =  be32_to_cpu(list[tmp_idx+2]);
         // grp->pins_conf[i].conf   =  be32_to_cpu(list[tmp_idx+3]);
 
-		grp->pins[i] = PINCTRL_PIN_NUMBER(grp->pins_conf[i].bank, grp->pins_conf[i].pin);
+		// grp->pins[i] = PINCTRL_PIN_NUMBER(grp->pins_conf[i].bank, grp->pins_conf[i].pin);
 
 	}
 
 	return  0;
-}
-
-
-
-static int32_t allwinner_pinctrl_probe_np(struct platform_device * pdev, allwinner_pinctrl_desc_t * pinctrl_desc )
-{
-    int32_t  ret  =  0;
-    struct  device * dev =  &pdev->dev;
-    struct  device_node * dev_node  =  dev->of_node;
-
-    allwinner_pinctrl_function_groups(dev_node,  pinctrl_desc);
-
-    pinctrl_desc->groups  =  devm_kzalloc(dev, pinctrl_desc->ngroups * sizeof(allwinner_pin_group_t), 
-                                GFP_KERNEL);
-    
-    if (!pinctrl_desc->groups) {
-        return  -ENOMEM;
-    }
-
-    struct  device_node * func_child = NULL;
-    struct  device_node * group_child = NULL;
-    uint32_t  func_idx, group_idx; 
-    func_idx  =  group_idx = 0;
-	for_each_child_of_node(dev_node, func_child) {
-		// if (of_device_is_compatible(func_child, ALLWINNER_GPIO_COMPAILE)) {
-		// 	continue;            
-        // }
-
-        pinctrl_desc->functions[func_idx].name  = func_child->name;
-        uint32_t  func_groups =  of_get_child_count(func_child);
-        pinctrl_desc->functions[func_idx].ngroups  =  func_groups;
-        pinctrl_desc->functions[func_idx].groups  = devm_kzalloc(dev, func_groups * sizeof(char *), GFP_KERNEL);
-        if (!pinctrl_desc->functions[func_idx].groups) {
-            return  -ENOMEM;
-        }
-
-        uint32_t  tmp_goup_idx = 0;
-        for_each_child_of_node(func_child, group_child) {
-            pinctrl_desc->functions[func_idx].groups[tmp_goup_idx++]  =  group_child->name;
-            
-            ret  =  allwinner_pinctrl_parse_groups(dev, group_child, &pinctrl_desc->groups[group_idx]);
-            if (ret) {
-                _PRINTF_ERROR("allwinner pinctrl parse groups failed! ret = %d\n", ret);
-                return  ret;  
-            }
-            group_idx++;
-        }
-        func_idx++;
-	}
-
-	return  ret;
-
 }
 
 
@@ -414,7 +512,7 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
     struct  device * dev =  &pdev->dev;
     struct  device_node * dev_node  =  dev->of_node;
 
-    const allwinner_pinctrl_platform_mach_t * const match_data = device_get_match_data(dev);
+    const allwinner_pinctrl_platform_data_t * const match_data = device_get_match_data(dev);
 
     struct pinctrl_pin_desc * pin_descs =  devm_kzalloc(dev,  
                 sizeof(struct pinctrl_pin_desc) * match_data->pins,  GFP_KERNEL);
@@ -423,12 +521,6 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
     if (!pin_descs || !pinctrl_desc) {
         _PRINTF_ERROR("alloc memory failed!");
         return -ENOMEM;
-    }
-
-    ret  =  allwinner_pinctrl_probe_np(pdev,  pinctrl_desc);
-    if (ret) {
-        _PRINTF_ERROR("allwinner pinctrl parse dev_node failed! ret = %d\n", ret);
-        return  ret;
     }
 
     uint32_t  pin_number = 0;
@@ -444,6 +536,15 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
         }
     }
 
+    allwinner_pin_group_state_t * grp_state = devm_kzalloc(dev, 
+                    sizeof(allwinner_pin_group_state_t) * match_data->ngroups, GFP_KERNEL );
+    for (uint32_t i = 0; i < match_data->ngroups; i++) {
+        grp_state[i].cur_function = PIN_GROUP_NO_CONFIG_PMX;
+        grp_state[i].cur_function  =  0;
+    }
+
+    // pinctrl_dev
+    pinctrl_desc->groups_state = grp_state;
     pinctrl_desc->pinctrl_membase  =  devm_ioremap(dev, PINCTRL_PHY_ADDR_BASE,  0x400);
     pinctrl_desc->pinctrl_r_membase  =  devm_ioremap(dev, PINCTRL_R_PHY_ADDR_BASE,  0x400);
 
@@ -480,6 +581,15 @@ static int32_t allwinner_pinctrl_remove(struct platform_device * pdev)
 	return  0;
 }
 
+const static  allwinner_pinctrl_platform_data_t h6_v200_platdata = {
+    .number = ARRAY_SIZE(allwinner_h6_bank_info), 
+    .bank_info  =  allwinner_h6_bank_info,
+    .pins  =  93,
+    .functions  =  allwinner_h6_functions,
+    .nfunctions  =  ARRAY_SIZE(allwinner_h6_functions),
+    .groups  =  allwinner_h6_groups,
+    .nfunctions  =  ARRAY_SIZE(allwinner_h6_groups),
+};
 
 static struct of_device_id allwinner_pinctrl_ids[] =  {
 	{.compatible = "allwinner,H6-v200-pinctrl", .data = &h6_v200_platdata},

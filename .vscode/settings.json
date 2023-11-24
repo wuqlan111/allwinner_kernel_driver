@@ -3,7 +3,15 @@
         "Kconfig": "kconfig",
         "*.h": "c",
         "*.c": "c",
-        "typeinfo": "c"
+        "typeinfo": "c",
+        "cstddef": "c",
+        "string": "c",
+        "optional": "c",
+        "limits": "c",
+        "memory": "c",
+        "new": "c",
+        "functional": "c",
+        "type_traits": "c"
     },
 
     "C_Cpp.autocomplete": "default",

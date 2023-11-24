@@ -40,9 +40,17 @@ typedef enum {
 } allwinner_h6_pinmux_af_e;
 
 
+typedef enum {
+	ALLWINNER_H6_GPIO_PUPD_NO = 0,
+	ALLWINNER_H6_GPIO_PUPD_UP,
+	ALLWINNER_H6_GPIO_PUPD_DOWN,
+    ALLWINNER_H6_GPIO_MAX = ALLWINNER_H6_GPIO_PUPD_DOWN
+} allwinner_h6_gpio_pupd_e;
 
 
-
+#define  ALLWINNNER_H6_PIN_PULL_IDX(offset)      ((offset)>>4)
+#define  ALLWINNNER_H6_PIN_PULL_SHIFT(offset)    (((offset) & 0xf) << 1)
+#define  ALLWINNNER_H6_PIN_PULL_MASK              GENMASK(1, 0)
 
 
 
