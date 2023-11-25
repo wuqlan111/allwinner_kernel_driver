@@ -17,12 +17,7 @@
 #include <linux/delay.h>
 
 #include "wdt-allwinner.h"
-
-#define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_NOTICE(fmt, args...)    pr_notice("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
+#include "dbg_log.h"
 
 
 
@@ -140,9 +135,12 @@ static int32_t  allwinner_wdt_probe(struct platform_device * pdev)
     wdt->offset   =  offset;
 
     wdt->wdt_dev.ops  =  &wdt_ops;
+    wdt->wdt_dev.info  = &allwinner_wdt_info;
     wdt->wdt_dev.min_timeout  =  ALLWINNER_WDT_MIN_TIMEOUT;
     wdt->wdt_dev.max_timeout  =  ALLWINNER_WDT_MAX_TIMEOUT;
     wdt->wdt_dev.parent  =  &pdev->dev;
+
+    watchdog_stop_on_unregister(&wdt->wdt_dev);
 
     ret  =  watchdog_register_device(&wdt->wdt_dev);
     if (ret) {
