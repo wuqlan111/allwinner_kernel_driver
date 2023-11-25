@@ -17,12 +17,10 @@
 #include <linux/compiler-gcc.h>
 
 #include "gpio-allwinner.h"
+#include "dbg_log.h"
 
-#define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_NOTICE(fmt, args...)    pr_notice("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
+
+
 
 #define  ALLWINNER_GPIO_CAN_SET_FUNC(pin_func)  ( ( (pin_func) == ALLWINNER_H6_PINMUX_INPUT) ||     \
             ((pin_func) == ALLWINNER_H6_PINMUX_OUTPUT) || ( (pin_func) == ALLWINNER_H6_PINMUX_DISABLE) )

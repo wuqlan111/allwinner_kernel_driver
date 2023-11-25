@@ -21,12 +21,9 @@
 #include <linux/delay.h>
 
 #include "pinctrl-allwinner.h"
+#include "dbg_log.h"
 
-#define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_NOTICE(fmt, args...)    pr_notice("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
+
 
 #define  PINCTRL_BANK_MAX_PIN       32
 #define  PINCTRL_PIN_NUMBER(bank, offset)         (  ((bank) << 8) | (offset) )

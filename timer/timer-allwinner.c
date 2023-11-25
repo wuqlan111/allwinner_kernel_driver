@@ -19,12 +19,7 @@
 #include <linux/delay.h>
 
 #include "timer-allwinner.h"
-
-#define  _PRINTF_DBG(fmt, args...)       pr_debug("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_INFO(fmt, args...)      pr_info("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_NOTICE(fmt, args...)    pr_notice("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_WARN(fmt, args...)      pr_warn("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
-#define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
+#include "dbg_log.h"
 
 
 typedef  struct {
@@ -59,9 +54,9 @@ static allwinner_clock_event_device_t * allwinner_timer_dev_get(struct clock_eve
     return  container_of(dev, allwinner_clock_event_device_t,  clk_dev); 
 }
 
-// static int32_t			(*set_state_periodic)(struct clock_event_device *);
-	// int			(*set_state_oneshot)(struct clock_event_device *);
-	// int			(*set_state_oneshot_stopped)(struct clock_event_device *);
+
+
+
 static 	int32_t   allwinner_timer_set_state_shutdown(struct clock_event_device * dev)
 {
     allwinner_clock_event_device_t * timer_dev  =  allwinner_timer_dev_get(dev);
