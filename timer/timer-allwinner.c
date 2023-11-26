@@ -206,7 +206,6 @@ static int32_t __init allwinner_setup_clockevent(allwinner_timer_plat_t * timer_
 
     timer_plat->timer_devs[timer_id].clk_dev.features  = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT;
     timer_plat->timer_devs[timer_id].clk_dev.suspend  =  allwinner_timer_suspend;
-    timer_plat->timer_devs[timer_id].clk_dev.resume  =  allwinner_timer_resume;
     timer_plat->timer_devs[timer_id].clk_dev.tick_resume  =  allwinner_timer_tick_resume;
     timer_plat->timer_devs[timer_id].clk_dev.set_state_oneshot  =  allwinner_timer_set_state_oneshot;
     timer_plat->timer_devs[timer_id].clk_dev.set_state_periodic  =  allwinner_timer_set_state_periodic;
