@@ -23,6 +23,9 @@
 #define  ALLWINNER_HHMMSS_MINUTE               GENMASK(13,  8)
 #define  ALLWINNER_HHMMSS_SECOND               GENMASK(5,   0)
 
+#define  ALLWINNER_RTC_ALARM_IRQ_EN                 BIT(0)
+#define  ALLWINNER_RTC_ALARM_IRQ_PENDING            BIT(0)
+
 #define  ALLWINNER_RTC_MAP_SIZE     (0x400u)
 #define  ALLWINNER_RTC_INTERNAL_CLK           (16000000u)
 #define  ALLWINNER_RTC_EXTERNAL_CLK           (32768u)

@@ -126,6 +126,20 @@ static  int32_t allwinner_rtc_set_time(struct device * dev, struct rtc_time * tm
 
 static 	int32_t  allwinner_rtc_read_alarm(struct device * dev, struct rtc_wkalrm * alarm)
 {
+    struct platform_device * pdev  =  container_of(dev, struct platform_device, dev);
+    allwinner_rtc_plat_t * rtc = platform_get_drvdata(pdev);
+
+    allwinner_h6_rtc_t * regs = (allwinner_h6_rtc_t * )rtc->map_base;
+
+    uint32_t  rtc_enable = readl_relaxed(&regs->alarm1_enable) ? 1: 0;
+    if (rtc_enable ) {
+        uint32_t  hh_mm_ss   =  readl_relaxed(&regs->alarm1_wk);
+
+        alarm->enabled =  1;
+        alarm->time.tm_sec = hh_mm_ss & ALLWINNER_HHMMSS_SECOND;
+		alarm->time.tm_min =  (hh_mm_ss & ALLWINNER_HHMMSS_MINUTE) >> 8;
+		alarm->time.tm_hour =  (hh_mm_ss & ALLWINNER_HHMMSS_HOUR) >> 16;
+    }
 
     return  0;
 }
@@ -135,7 +149,28 @@ static 	int32_t  allwinner_rtc_read_alarm(struct device * dev, struct rtc_wkalrm
 static  int32_t  allwinner_rtc_set_alarm(struct device * dev, struct rtc_wkalrm * alarm)
 {
 
+    struct platform_device * pdev  =  container_of(dev, struct platform_device, dev);
+    allwinner_rtc_plat_t * rtc = platform_get_drvdata(pdev);
+
+    allwinner_h6_rtc_t * regs = (allwinner_h6_rtc_t * )rtc->map_base;
+
+
+
     return  0;
+}
+
+
+static int32_t allwinner_rtc_alarm_irq_enable(struct device * dev, uint32_t enabled)
+{
+    struct platform_device * pdev  =  container_of(dev, struct platform_device, dev);
+    allwinner_rtc_plat_t * rtc = platform_get_drvdata(pdev);
+
+    allwinner_h6_rtc_t * regs = (allwinner_h6_rtc_t * )rtc->map_base;
+
+    writel_relaxed(ALLWINNER_RTC_ALARM_IRQ_EN,  &regs->alarm1_irq_enable);
+
+    return  0;
+
 }
 
 
@@ -153,7 +188,7 @@ static int32_t  allwinner_rtc_probe(struct platform_device * pdev)
     int32_t ret =  0;
     struct device * dev  =  &pdev->dev;
     struct device_node * dev_node = dev->of_node;
-
+ 
     allwinner_rtc_plat_t * rtc_plat  =  devm_kzalloc(dev,  sizeof(allwinner_rtc_plat_t),
                             GFP_KERNEL);
 
@@ -172,7 +207,7 @@ static int32_t  allwinner_rtc_probe(struct platform_device * pdev)
         return -EINVAL;
     }
 
-    rtc_plat->rtcdev  =  rtc_device_register("allwinner-rtc",  dev,  &allwinner_rtc_ops, 
+    rtc_plat->rtcdev  =  devm_rtc_device_register( dev,  "allwinner-rtc",   &allwinner_rtc_ops, 
                             THIS_MODULE);
     if ( IS_ERR(rtc_plat->rtcdev) ) {
         ret  =  PTR_ERR(rtc_plat->rtcdev);
@@ -190,10 +225,10 @@ static int32_t  allwinner_rtc_probe(struct platform_device * pdev)
 
 static int32_t allwinner_rtc_remove(struct platform_device * pdev)
 {
-    struct  device * dev =  &pdev->dev;
-    allwinner_rtc_plat_t * rtc = platform_get_drvdata(pdev);
+    // struct  device * dev =  &pdev->dev;
+    // allwinner_rtc_plat_t * rtc = platform_get_drvdata(pdev);
 
-    rtc_device_unregister(rtc->rtcdev);
+    // rtc_device_unregister(rtc->rtcdev);
 
 	return  0;
 }
