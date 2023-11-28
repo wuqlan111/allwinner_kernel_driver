@@ -13,6 +13,8 @@
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/dmaengine.h>
+#include <linux/dmapool.h>
+#include <linux/irq.h>
 #include <linux/list.h>
 #include <linux/of_dma.h>
 #include <linux/bitops.h>
@@ -76,9 +78,11 @@ typedef  struct {
 
 typedef  struct {
     struct dma_chan chan;
-    uint32_t  * map_base;
-    uint32_t  phy_addr;
+    // uint32_t  * map_base;
+    // uint32_t  phy_addr;
+    struct tasklet_struct tasklet;	
     spinlock_t  lock;
+    struct dma_slave_config	config;
     struct list_head  free_desc;
     struct list_head  one_desc;
     struct list_head  cyclic_desc;
@@ -90,6 +94,7 @@ typedef struct {
     struct  dma_device dmadev;
     uint32_t  * map_base;
     uint32_t  phy_addr;
+    struct dma_pool * desc_pool;
     allwinner_dma_chan_t chans[ALLWINNER_DMA_CHANNEL_NUM];
 } allwinner_dma_device_t;
 
@@ -157,6 +162,12 @@ static inline allwinner_dma_chan_t * to_allwinner_dma_chan(struct dma_chan * cha
 	return  container_of(chan, allwinner_dma_chan_t, chan);
 }
 
+static inline allwinner_dma_device_t * to_allwinner_dma_dev(struct dma_device * dev)
+{
+	return  container_of(dev, allwinner_dma_device_t, dmadev);
+}
+
+
 static dma_cookie_t allwinner_dma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
 	allwinner_dma_chan_t * dma_chan = to_allwinner_dma_chan(tx->chan);
@@ -182,14 +193,16 @@ static dma_cookie_t allwinner_dma_tx_submit(struct dma_async_tx_descriptor *tx)
 static int32_t allwinner_dma_alloc_chan_resources(struct dma_chan *chan)
 {
 	allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    allwinner_dma_device_t * dma_dev = to_allwinner_dma_dev(chan->device);
 
     while (allwinner_chan->allocated < ALLWINNER_DMA_MAX_CHAN_DESCRIPTORS) {
-		allwinner_dma_desc_t * desc = kzalloc(sizeof(allwinner_dma_desc_t), GFP_KERNEL);
+        dma_addr_t  phy_addr = 0;
+		allwinner_dma_desc_t * desc = dma_pool_zalloc(dma_dev->desc_pool, 
+                                        GFP_ATOMIC, &phy_addr);
 		if (!desc) {
 			break;            
         }
 
-		memset(desc,   0,  sizeof(allwinner_dma_desc_t));
 		dma_async_tx_descriptor_init(&desc->desc, chan);
 		desc->desc.tx_submit = allwinner_dma_tx_submit;
 
@@ -207,6 +220,7 @@ static int32_t allwinner_dma_alloc_chan_resources(struct dma_chan *chan)
 static void allwinner_dma_free_chan_resources(struct dma_chan *chan)
 {
     allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    allwinner_dma_device_t * dma_dev = to_allwinner_dma_dev(chan->device);
 
     struct list_head  to_free = {0};
     INIT_LIST_HEAD(&to_free);
@@ -216,13 +230,13 @@ static void allwinner_dma_free_chan_resources(struct dma_chan *chan)
 
 	// imxdma_disable_hw(imxdmac);
 	list_splice_tail_init(&allwinner_chan->free_desc,  &to_free);
-	list_splice_tail_init(&allwinner_chan->one_desc,  &to_free);
+	// list_splice_tail_init(&allwinner_chan->one_desc,  &to_free);
 
 	spin_unlock_irqrestore(&allwinner_chan->lock, flags);
 
     allwinner_dma_desc_t *desc, *_desc;
     list_for_each_entry_safe(desc, _desc, &to_free, node) {
-		kfree(desc);
+		dma_pool_free(dma_dev->desc_pool, desc, desc->desc.phys);
 		allwinner_chan->allocated--;
 	}
 
@@ -289,13 +303,34 @@ static struct dma_async_tx_descriptor * allwinner_dma_prep_dma_memcpy(
     return NULL;
 }
 
+
+static int32_t allwinner_check_slave_config(struct dma_slave_config *sconfig)
+{
+    int32_t  ret =  0;
+	if (sconfig->direction == DMA_TRANS_NONE) {
+        return  -EINVAL;
+    }
+
+    if ( !ALLWINNER_BUS_WIDTH_VALID(sconfig->src_addr_width) ||  
+                    !ALLWINNER_BUS_WIDTH_VALID(sconfig->dst_addr_width)) {
+        ret  =  -EINVAL;
+    }
+
+	return 0;
+}
+
 static int32_t allwinner_dma_config(struct dma_chan *chan,
 			 struct dma_slave_config *dmaengine_cfg)
 {
-    // allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
-    // allwinner_dma_device_t * allwinner_dma  = container_of(allwinner_chan->chan.device, 
-    //                         allwinner_dma_device_t,   dmadev);
-    // allwinner_h6_dma_t * regs  =  (allwinner_h6_dma_t *)allwinner_dma->map_base;
+    int32_t  ret  =  0;
+    allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+
+    ret = allwinner_check_slave_config(dmaengine_cfg);
+    if (ret) {
+        return  ret;
+    }
+
+    memcpy(&allwinner_chan->config, dmaengine_cfg, sizeof(struct dma_slave_config));
 
     return  0;
 }
@@ -328,7 +363,10 @@ static void allwinner_dma_issue_pending(struct dma_chan *chan)
 
 }
 
-
+static void allwinner_dma_tasklet(unsigned long data)
+{
+	allwinner_dma_chan_t * dma_chan = (allwinner_dma_chan_t *)data;
+}
 
 typedef struct {
 	allwinner_dma_device_t * dma_dev;
@@ -394,22 +432,30 @@ static int32_t  allwinner_dma_probe(struct platform_device * pdev)
         return -EINVAL;
     }
 
+    dma_plat->desc_pool  = dma_pool_create("allwinner_dma_desc", dev, 
+                                sizeof(allwinner_dma_desc_t), 4, 0 );
+    if (!dma_plat->desc_pool ) {
+        _PRINTF_ERROR("allocate dma pool failed!\n");
+        return  -1;
+    }
+
 	dma_cap_set(DMA_SLAVE,  dma_plat->dmadev.cap_mask);
 	dma_cap_set(DMA_CYCLIC, dma_plat->dmadev.cap_mask);
 	dma_cap_set(DMA_MEMCPY, dma_plat->dmadev.cap_mask);
+    // dma_cap_set(DMA_PRIVATE, atxdmac->dma.cap_mask);
 
     INIT_LIST_HEAD(&dma_plat->dmadev.channels);
     for (int32_t  i =  0; i < ALLWINNER_DMA_CHANNEL_NUM; i++) {
-        dma_plat->chans[i].map_base  = dma_plat->map_base;
-        dma_plat->chans[i].phy_addr  = dma_plat->phy_addr;
         dma_plat->chans[i].chan.device  =  &dma_plat->dmadev;
         dma_plat->chans[i].allocated  =  0;
         list_add_tail(&dma_plat->chans[i].chan.device_node,  &dma_plat->dmadev.channels);
         INIT_LIST_HEAD(&dma_plat->chans[i].free_desc);
         INIT_LIST_HEAD(&dma_plat->chans[i].cyclic_desc);
         INIT_LIST_HEAD(&dma_plat->chans[i].one_desc);
-    }
 
+        tasklet_init(&dma_plat->chans[i].tasklet, allwinner_dma_tasklet,
+                            (unsigned long)&dma_plat->chans[i]);
+    }
 
 	dma_plat->dmadev.device_alloc_chan_resources = allwinner_dma_alloc_chan_resources;
 	dma_plat->dmadev.device_free_chan_resources = allwinner_dma_free_chan_resources;
@@ -423,18 +469,17 @@ static int32_t  allwinner_dma_probe(struct platform_device * pdev)
 
     dma_plat->dmadev.dev  = dev;
 
+    ret  =  dmaenginem_async_device_register(&dma_plat->dmadev);
+    if (ret) {
+        _PRINTF_ERROR("dma register device failed! ret = %d\n",  ret);
+        return  ret;
+    } else {
+        _PRINTF_DBG("dma register device successful\n");
+    }
+
     ret = of_dma_controller_register(dev_node, allwinner_dma_xlate, dma_plat);
     if (ret) {
         _PRINTF_ERROR("register of_dma_controller failed! ret = %d\n",  ret);
-        return ret;
-    }
-
-    ret  =  dmaenginem_async_device_register(&dma_plat->dmadev);
-
-    if (ret) {
-        _PRINTF_ERROR("dma register device failed! ret = %d\n",  ret);
-    } else {
-        _PRINTF_DBG("dma register device successful\n");
     }
 
     platform_set_drvdata(pdev, dma_plat);

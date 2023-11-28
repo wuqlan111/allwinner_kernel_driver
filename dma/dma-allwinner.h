@@ -4,11 +4,9 @@
 #include  <linux/bitops.h>
 
 
-
 #define  ALLWINNER_DMA_MAP_SIZE     (0x400u)
 #define  ALLWINNER_DMA_CHANNEL_NUM       (16u)
 #define  ALLWINNER_DMA_DESC_LINK_END       (0xfffff800u)
-
 
 #define  ALLWINNER_DMA_CFG_DATA_WIDTH       GENMASK(10,  9)
 #define  ALLWINNER_DMA_CFG_ADDR_MODE        BIT(8)
@@ -16,6 +14,11 @@
 #define  ALLWINNER_DMA_CFG_BLK_SIZE         GENMASK(7,  6)
 
 #define  ALLWINNER_DMA_MAX_CHAN_DESCRIPTORS        (64u)
+
+#define ALLWINNER_BUS_WIDTH_VALID(width) (  (width) == DMA_SLAVE_BUSWIDTH_1_BYTE   ||     \
+                                            (width) == DMA_SLAVE_BUSWIDTH_2_BYTES  ||     \
+                                            (width) == DMA_SLAVE_BUSWIDTH_4_BYTES  ||     \
+                                            (width) == DMA_SLAVE_BUSWIDTH_8_BYTES )
 
 
 enum {

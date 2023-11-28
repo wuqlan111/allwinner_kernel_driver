@@ -11,7 +11,9 @@
         "memory": "c",
         "new": "c",
         "functional": "c",
-        "type_traits": "c"
+        "type_traits": "c",
+        "array": "c",
+        "string_view": "c"
     },
 
     "C_Cpp.autocomplete": "default",
