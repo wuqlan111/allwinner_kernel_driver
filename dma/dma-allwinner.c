@@ -84,6 +84,8 @@ typedef  struct {
     spinlock_t  lock;
     struct dma_slave_config	config;
     struct list_head  free_desc;
+    struct list_head  submit_desc;
+    struct list_head  xfer_desc;
     struct list_head  one_desc;
     struct list_head  cyclic_desc;
     uint32_t  allocated;
@@ -228,9 +230,7 @@ static void allwinner_dma_free_chan_resources(struct dma_chan *chan)
     unsigned long flags =  0;
     spin_lock_irqsave(&allwinner_chan->lock, flags);
 
-	// imxdma_disable_hw(imxdmac);
 	list_splice_tail_init(&allwinner_chan->free_desc,  &to_free);
-	// list_splice_tail_init(&allwinner_chan->one_desc,  &to_free);
 
 	spin_unlock_irqrestore(&allwinner_chan->lock, flags);
 
@@ -243,10 +243,30 @@ static void allwinner_dma_free_chan_resources(struct dma_chan *chan)
 }
 
 static enum dma_status allwinner_dma_tx_status(struct dma_chan *chan,
-					    dma_cookie_t cookie,
-					    struct dma_tx_state * txstate)
+					    dma_cookie_t cookie,  struct dma_tx_state * txstate)
 {
-    return  0;
+    enum  dma_status ret  =  DMA_ERROR;
+    allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    allwinner_dma_device_t * dma_dev = to_allwinner_dma_dev(chan->device);
+    allwinner_h6_dma_t * regs = (allwinner_h6_dma_t *)dma_dev->map_base;
+    const uint32_t chan_id  =  chan->chan_id;
+    allwinner_dma_desc_t * desc = NULL;
+
+	if ( !txstate) {
+		return ret;        
+    }
+
+    unsigned long flags =  0;
+	spin_lock_irqsave(&allwinner_chan->lock, flags);
+    desc = list_first_entry(&allwinner_chan->xfer_desc, allwinner_dma_desc_t, node);
+
+    // if (desc->desc.cookie > cookie)
+    uint32_t  residue =  readl_relaxed(&regs->channel_cfg[chan_id].byte_left);
+    spin_unlock_irqrestore(&allwinner_chan->lock, flags);
+
+    txstate->residue = residue;
+
+    return  ret;
 }
 
 static struct dma_async_tx_descriptor * allwinner_dma_prep_slave_sg(
@@ -336,6 +356,42 @@ static int32_t allwinner_dma_config(struct dma_chan *chan,
 }
 
 
+static int32_t allwinner_dma_device_pause(struct dma_chan *chan)
+{
+    allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    allwinner_dma_device_t * allwinner_dma  = container_of(allwinner_chan->chan.device, 
+                            allwinner_dma_device_t,   dmadev);
+    allwinner_h6_dma_t * regs  =  (allwinner_h6_dma_t *)allwinner_dma->map_base;
+
+    const uint32_t chan_id = chan->chan_id;
+
+    unsigned  long flags = 0;
+	spin_lock_irqsave(&allwinner_chan->lock, flags);
+    writel_relaxed(ALLWINNER_DMA_PAUSE_TRANSFER,  &regs->channel_cfg[chan_id].pause);
+	spin_unlock_irqrestore(&allwinner_chan->lock, flags);
+
+	return  0;
+}
+
+static int32_t allwinner_dma_device_resume(struct dma_chan *chan)
+{
+    allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
+    allwinner_dma_device_t * allwinner_dma  = container_of(allwinner_chan->chan.device, 
+                            allwinner_dma_device_t,   dmadev);
+    allwinner_h6_dma_t * regs  =  (allwinner_h6_dma_t *)allwinner_dma->map_base;
+
+    const uint32_t chan_id = chan->chan_id;
+
+    unsigned  long flags = 0;
+	spin_lock_irqsave(&allwinner_chan->lock, flags);
+    writel_relaxed(0,  &regs->channel_cfg[chan_id].pause);
+	spin_unlock_irqrestore(&allwinner_chan->lock, flags);
+
+	return  0;
+
+}
+
+
 static int32_t allwinner_dma_terminate_all(struct dma_chan *chan)
 {
     allwinner_dma_chan_t * allwinner_chan = to_allwinner_dma_chan(chan);
@@ -345,12 +401,12 @@ static int32_t allwinner_dma_terminate_all(struct dma_chan *chan)
 
     const uint32_t chan_id  =  chan->chan_id;
 
-    writel_relaxed(0,  &regs->channel_cfg[chan_id].enable);
-
     unsigned  long flags  =  0;
  	spin_lock_irqsave(&allwinner_chan->lock, flags);
+    writel_relaxed(0,  &regs->channel_cfg[chan_id].enable);    
 	list_splice_tail_init(&allwinner_chan->one_desc, &allwinner_chan->free_desc);
 	list_splice_tail_init(&allwinner_chan->cyclic_desc, &allwinner_chan->free_desc);
+	list_splice_tail_init(&allwinner_chan->submit_desc, &allwinner_chan->free_desc);
 	spin_unlock_irqrestore(&allwinner_chan->lock, flags);
 
     return  0;
@@ -464,6 +520,8 @@ static int32_t  allwinner_dma_probe(struct platform_device * pdev)
 	dma_plat->dmadev.device_prep_dma_cyclic = allwinner_dma_prep_dma_cyclic;
 	dma_plat->dmadev.device_prep_dma_memcpy = allwinner_dma_prep_dma_memcpy;
 	dma_plat->dmadev.device_config = allwinner_dma_config;
+    dma_plat->dmadev.device_pause			= allwinner_dma_device_pause;
+	dma_plat->dmadev.device_resume			= allwinner_dma_device_resume;
 	dma_plat->dmadev.device_terminate_all = allwinner_dma_terminate_all;
 	dma_plat->dmadev.device_issue_pending = allwinner_dma_issue_pending;
 

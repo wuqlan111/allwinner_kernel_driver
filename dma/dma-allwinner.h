@@ -13,6 +13,8 @@
 #define  ALLWINNER_DMA_CFG_DRQ_TYPE         GENMASK(5,  0)
 #define  ALLWINNER_DMA_CFG_BLK_SIZE         GENMASK(7,  6)
 
+#define  ALLWINNER_DMA_PAUSE_TRANSFER       BIT(0)
+
 #define  ALLWINNER_DMA_MAX_CHAN_DESCRIPTORS        (64u)
 
 #define ALLWINNER_BUS_WIDTH_VALID(width) (  (width) == DMA_SLAVE_BUSWIDTH_1_BYTE   ||     \
