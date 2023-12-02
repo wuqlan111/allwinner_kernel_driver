@@ -68,6 +68,9 @@ typedef struct {
 } allwinner_uart_port_t;
 
 
+static  allwinner_uart_port_t * allwinner_uart_ports[UART_ALLWINNNER_NR_PORTS];
+
+
 static void _allwinner_serial_set_or_clean_dlab(allwinner_h6_uart_t * const uart_reg, const uint32_t set)
 {
 	while(readl_relaxed(&uart_reg->usr) & ALLWINNER_UART_SR_BUSY) ;
@@ -185,26 +188,66 @@ static uint32_t allwinner_uart_tx_empty(struct uart_port *port)
 	allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
     allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
 
-    uint32_t  ret  =  readl_relaxed(&regs->lsr) & ALLWINNER_UART_LSR_THRE? 1: 0;
+    uint32_t  ret  =  readl_relaxed(&regs->lsr) & ALLWINNER_UART_LSR_THRE? TIOCSER_TEMT: 0;
 	return  ret;
 }
 
 static uint32_t allwinner_uart_get_mctrl(struct uart_port *port)
 {
+    uint32_t  ret =  0;
     allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
     allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
 
-    return  0;
+    const uint32_t mcr = readl_relaxed(&regs->mcr);
+
+    if (mcr & ALLWINNER_UART_MSR_DCD) {
+        ret |= TIOCM_CAR;
+    }
+
+    if (mcr & ALLWINNER_UART_MSR_DSR) {
+        ret |= TIOCM_DSR;
+    }
+
+    if (mcr & ALLWINNER_UART_MSR_CTS) {
+        ret |= TIOCM_CTS;
+    }
+
+    return  ret;
 }
 
 static void allwinner_uart_set_mctrl(struct uart_port *port, uint32_t mctrl)
 {
+    uint32_t  flag = 0;
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
 
+    if (mctrl & TIOCM_RTS) {
+        flag |= ALLWINNER_UART_MCR_RTS;
+    }
+
+    if (mctrl & TIOCM_LOOP) {
+        flag |=  ALLWINNER_UART_MCR_LOOP;
+    }
+
+    if (mctrl & TIOCM_DTR) {
+        flag |= ALLWINNER_UART_MCR_DTR;
+    }
+
+    writel_relaxed(flag,  &regs->mcr);
 
 }
 
+// enable modem status interrupts
 static void allwinner_uart_enable_ms(struct uart_port *port)
 {
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+    _allwinner_serial_set_or_clean_dlab(regs,  0);
+
+    uint32_t  flag  =  readl_relaxed(&regs->ier);
+    flag |=  ALLWINNER_UART_IER_EDSSI;
+    writel_relaxed(flag,  &regs->ier);
 
 }
 
@@ -253,7 +296,7 @@ static const char * allwinner_uart_type(struct uart_port *port)
 {
     allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
 
-	return  uart_port->port.type == PORT_SUNIX ? "Allwinner" : NULL;
+	return  uart_port->port.type == PORT_SUNIX ? "allwinner" : NULL;
 }
 
 
@@ -301,7 +344,7 @@ static struct uart_ops allwinner_uart_ops = {
 	// .stop_tx	=  allwinner_uart_stop_tx,
 	// .start_tx	=  allwinner_uart_start_tx,
 	// .stop_rx	=  allwinner_uart_stop_rx,
-	.enable_ms	=  allwinner_uart_enable_ms,
+	// .enable_ms	=  allwinner_uart_enable_ms,
 	.break_ctl	=  allwinner_uart_break_ctl,
 	.startup	=  allwinner_uart_startup,
 	.shutdown	=  allwinner_uart_shutdown,
@@ -318,11 +361,12 @@ static struct uart_ops allwinner_uart_ops = {
 
 static struct  uart_driver  uart_driver_reg  =  {
     .owner  =  THIS_MODULE,
-	.driver_name  =  "ttyAllwinner",
-	.dev_name    =  "ttyAllwinner",
+	.driver_name  =  UART_ALLWINNER_DRV_NAME,
+	.dev_name    =  UART_ALLWINNER_DEV_NAME,
 	.major	 =  UART_ALLWINNER_MAJOR,
 	.minor	 =  UART_ALLWINNER_MINOR_START,
-	.nr	 =  UART_ALLWINNNER_NR_PORTS,
+	.nr	 =  UART_ALLWINNER_NR_PORTS,
+    .cons  =  UART_ALLWINNER_CONSOLE,
 };
 
 
@@ -338,7 +382,7 @@ static int32_t  allwinner_uart_probe(struct platform_device * pdev)
         return  -EINVAL;
     }
 
-    if (uart_id >= UART_ALLWINNNER_NR_PORTS) {
+    if (uart_id >= UART_ALLWINNER_NR_PORTS) {
         _PRINTF_ERROR("uart_id %u invalid\n", uart_id);
         return  -EINVAL;
     }
@@ -356,6 +400,8 @@ static int32_t  allwinner_uart_probe(struct platform_device * pdev)
 
     memset(port,  0,  sizeof(allwinner_uart_port_t));
 
+    allwinner_uart_ports[uart_id] = port;
+
     port->uart_clk  =  of_clk_get(dev_node, 0);
     if (port->uart_clk == ERR_PTR(-ENOENT)) {
         return -ENOENT;
@@ -363,8 +409,12 @@ static int32_t  allwinner_uart_probe(struct platform_device * pdev)
 
     port->base_addr  =  phy_addr;
     port->port.line  =  uart_id;
+    port->port.type  =  PORT_SUNIX,
+	port->port.iotype = UPIO_MEM;
     port->port.ops   =  &allwinner_uart_ops;
     port->port.dev   =  dev;
+    port->port.fifosize = UART_ALLWINNER_FIFO_SIZE;
+    port->port.flags = UPF_BOOT_AUTOCONF;
     port->port.membase  =  devm_ioremap(dev,  phy_addr,  UART_ALLWINNER_MAP_SIZE);
     port->port.mapbase  =  phy_addr;
     port->port.mapsize  =  UART_ALLWINNER_MAP_SIZE;

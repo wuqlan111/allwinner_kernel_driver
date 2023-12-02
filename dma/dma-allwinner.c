@@ -517,7 +517,7 @@ static int32_t  allwinner_dma_probe(struct platform_device * pdev)
 	dma_plat->dmadev.device_free_chan_resources = allwinner_dma_free_chan_resources;
 	dma_plat->dmadev.device_tx_status = allwinner_dma_tx_status;
 	dma_plat->dmadev.device_prep_slave_sg = allwinner_dma_prep_slave_sg;
-	dma_plat->dmadev.device_prep_dma_cyclic = allwinner_dma_prep_dma_cyclic;
+	// dma_plat->dmadev.device_prep_dma_cyclic = allwinner_dma_prep_dma_cyclic;
 	dma_plat->dmadev.device_prep_dma_memcpy = allwinner_dma_prep_dma_memcpy;
 	dma_plat->dmadev.device_config = allwinner_dma_config;
     dma_plat->dmadev.device_pause			= allwinner_dma_device_pause;

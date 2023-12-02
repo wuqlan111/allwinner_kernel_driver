@@ -3,11 +3,15 @@
 
 #include  <linux/bitops.h>
 
-#define  UART_ALLWINNER_MAJOR	204
-#define  UART_ALLWINNER_MINOR_START		5
-#define  UART_ALLWINNNER_NR_PORTS		3
-
+#define  UART_ALLWINNER_MAJOR	207
+#define  UART_ALLWINNER_MINOR_START		50
+#define  UART_ALLWINNER_NR_PORTS		4
+#define  UART_ALLWINNER_FIFO_SIZE		(256u)
+#define  UART_ALLWINNER_DRV_NAME        "allwinner-uart"
+#define  UART_ALLWINNER_DEV_NAME        "ttyallwinner"
 #define  UART_ALLWINNER_MAP_SIZE        (0x400u)
+
+#define  UART_ALLWINNER_CONSOLE        NULL
 
 #define ALLWINNER_UART_IER_PTIME        BIT(7)
 #define ALLWINNER_UART_IER_RS485        BIT(4)
