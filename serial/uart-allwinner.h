@@ -11,7 +11,6 @@
 #define  UART_ALLWINNER_DEV_NAME        "ttyallwinner"
 #define  UART_ALLWINNER_MAP_SIZE        (0x400u)
 
-#define  UART_ALLWINNER_CONSOLE        NULL
 
 #define ALLWINNER_UART_IER_PTIME        BIT(7)
 #define ALLWINNER_UART_IER_RS485        BIT(4)
@@ -72,6 +71,19 @@
 #define  ALLWINNER_UART_SR_TFNF                          BIT(1)
 #define  ALLWINNER_UART_SR_BUSY                          BIT(0)
 
+
+typedef enum {
+    ALLWINNER_UART_DATA_5 = 0,
+    ALLWINNER_UART_DATA_6,
+    ALLWINNER_UART_DATA_7,
+    ALLWINNER_UART_DATA_8,
+    ALLWINNER_UART_DATA_MAX  =  ALLWINNER_UART_DATA_8,
+} allwinner_uart_dls_e;
+
+typedef enum {
+    ALLWINNER_UART_PARITY_ODD = 0,
+    ALLWINNER_UART_PARITY_EVEN,
+} allwinner_uart_parity_e;
 
 
 

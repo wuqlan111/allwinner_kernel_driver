@@ -65,10 +65,11 @@ typedef struct {
     struct uart_port port;
     phys_addr_t  base_addr;
     struct clk * uart_clk;
+    uint32_t  auto_flowctrl:1;
 } allwinner_uart_port_t;
 
 
-static  allwinner_uart_port_t * allwinner_uart_ports[UART_ALLWINNNER_NR_PORTS];
+static  allwinner_uart_port_t * allwinner_uart_ports[UART_ALLWINNER_NR_PORTS] = {0};
 
 
 static void _allwinner_serial_set_or_clean_dlab(allwinner_h6_uart_t * const uart_reg, const uint32_t set)
@@ -272,7 +273,12 @@ static int32_t allwinner_uart_startup(struct uart_port *port)
     allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
     allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
 
+	_allwinner_serial_set_or_clean_dlab(regs,  0);
 
+	writel_relaxed(0, &regs->ier);
+	writel_relaxed(UARTX_FIFO_INIT_FLAG, &regs->fcr);
+	writel_relaxed(0x3,  &regs->lcr);
+	writel_relaxed(UARTX_MCR_INIT_FLAG,  &regs->mcr);
 
     return  0;
 }
@@ -289,6 +295,50 @@ static void  allwinner_uart_set_termios(struct uart_port *port, struct ktermios 
 {
     allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
     allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+    const uint32_t old_data_len  =  old ? old->c_cflag & CSIZE : CS8;
+    uint32_t  lcr = 0, mcr = 0;
+
+    switch (termios->c_cflag & CSIZE) {
+        case CS5:
+            lcr |= ALLWINNER_UART_DATA_5;
+            break;
+
+        case CS6:
+            lcr |= ALLWINNER_UART_DATA_6;
+            break;
+
+        case CS7:
+           lcr |= ALLWINNER_UART_DATA_7;
+            break;
+
+        case CS8:
+            lcr |= ALLWINNER_UART_DATA_8;
+            break;
+    }
+
+    if (termios->c_cflag & CRTSCTS) {
+        if (uart_port->auto_flowctrl) {
+            mcr |=  ALLWINNER_UART_MCR_AFCE;            
+        } else {
+            termios->c_cflag &= ~ CRTSCTS;
+        }
+    }
+
+	if (termios->c_cflag & PARENB) {
+		lcr |=  ALLWINNER_UART_LCR_PEN;
+		if ( !(termios->c_cflag & PARODD) ) {
+            lcr |= (ALLWINNER_UART_PARITY_EVEN << 4);
+        }
+	}
+
+    uint32_t  baud = 0, quot = 0;
+    baud = uart_get_baud_rate(port, termios, old, 300, port->uartclk / 16);
+	quot = uart_get_divisor(port, baud);
+
+	while(readl_relaxed(&regs->usr) & ALLWINNER_UART_SR_BUSY) ;
+
+    writel_relaxed(lcr, &regs->lcr);
+    writel_relaxed(mcr, &regs->mcr);
 
 }
 
@@ -354,10 +404,123 @@ static struct uart_ops allwinner_uart_ops = {
 	.request_port	=  allwinner_uart_request_port,
 	.config_port	=  allwinner_uart_config_port,
 	.verify_port	=  allwinner_uart_verify_port,
+
+#if defined(CONFIG_CONSOLE_POLL)
+	// .poll_init      = imx_poll_init,
+	// .poll_get_char  = imx_poll_get_char,
+	// .poll_put_char  = imx_poll_put_char,
+#endif
+
 };
 
+#define CONFIG_SERIAL_ALLWINNER_CONSOLE
+#ifdef CONFIG_SERIAL_ALLWINNER_CONSOLE
+
+static void allwinner_console_putchar(struct uart_port * port, int32_t ch)
+{
+    int32_t ret  =  0;
+    allwinner_uart_port_t * uart_port = container_of(port, allwinner_uart_port_t, port);
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+    do {
+        ret =  _allwinner_h6_serial_putc(regs, ch);
+    } while (ret == -EAGAIN);
+
+}
+
+static void allwinner_console_write(struct console *co, const char *s, uint32_t count)
+{
+	allwinner_uart_port_t * uart_port = allwinner_uart_ports[co->index];
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+
+    const  uint32_t old_lcr = readl_relaxed(&regs->lcr);
+    const  uint32_t old_mcr = readl_relaxed(&regs->mcr);
+
+    uart_console_write(&uart_port->port, s, count, allwinner_console_putchar);
+
+    while(readl_relaxed(&regs->usr) & ALLWINNER_UART_SR_BUSY) ;
+
+    writel_relaxed(old_lcr, &regs->lcr);
+    writel_relaxed(old_mcr, &regs->mcr);
+
+}
+
+static void __init  allwinner_console_get_options(allwinner_uart_port_t *sport, int32_t *baud,
+			   int32_t *parity, int32_t *bits)
+{
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)sport->port.membase;
+
+    uint32_t  mcr = readl_relaxed(&regs->mcr);
+    uint32_t  lcr = readl_relaxed(&regs->lcr);
+
+    *bits = lcr & ALLWINNER_UART_LCR_DLEN  + 5;
+    
+    if (lcr & ALLWINNER_UART_LCR_PEN) {
+        uint32_t parity_type = (lcr & ALLWINNER_UART_LCR_EPS) >> 4;
+        *parity  =  parity_type == ALLWINNER_UART_PARITY_ODD ? 'o': 'e';
+    } else {
+        *parity = 'n';
+    }
+
+    _allwinner_serial_set_or_clean_dlab(regs,  1);
+    uint32_t  divisor = (readl_relaxed(&regs->dbg_dlh) << 8) | readl_relaxed(&regs->dbg_dll);
+
+    // uartclk = clk_get_rate(sport->clk_per);
+    // uartclk /= ucfr_rfdiv;
+	
+}
 
 
+static int32_t __init allwinner_console_setup(struct console *co, char *options)
+{
+    int32_t  baud, bits, parity, flow, ret;
+    baud = 115200;
+    bits = 8;
+    parity  = flow  = 'n';
+    ret  =  0;
+
+	if ( (co->index == -1) || (co->index >= ARRAY_SIZE(allwinner_uart_ports)) ) {
+		co->index = 0;        
+    }
+
+	allwinner_uart_port_t * uart_port = allwinner_uart_ports[co->index];
+    allwinner_h6_uart_t * regs = (allwinner_h6_uart_t *)uart_port->port.membase;
+	if (uart_port == NULL) {
+		return -ENODEV;        
+    }
+
+	if (options) {
+		uart_parse_options(options, &baud, &parity, &bits, &flow);        
+    } else {
+		allwinner_console_get_options(uart_port, &baud, &parity, &bits);        
+    }
+
+    _allwinner_serial_set_or_clean_dlab(regs,  0);
+	writel_relaxed(0, &regs->ier);
+	writel_relaxed(UARTX_FIFO_INIT_FLAG, &regs->fcr);
+
+	ret = uart_set_options(&uart_port->port, co, baud, parity, bits, flow);
+
+    return  ret;
+
+}
+
+
+static struct uart_driver uart_driver_reg;
+static struct console allwinner_console = {
+	.name		= UART_ALLWINNER_DEV_NAME,
+	.write		= allwinner_console_write,
+	.device		= uart_console_device,
+	.setup		= allwinner_console_setup,
+	.flags		= CON_PRINTBUFFER,
+	.index		= -1,
+	.data		= &uart_driver_reg,
+};
+
+#define UART_ALLWINNER_CONSOLE	&allwinner_console
+#else
+#define  UART_ALLWINNER_CONSOLE        NULL
+#endif
 
 static struct  uart_driver  uart_driver_reg  =  {
     .owner  =  THIS_MODULE,
