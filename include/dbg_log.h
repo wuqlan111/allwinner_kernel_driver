@@ -15,7 +15,6 @@
 #define  _PRINTF_ERROR(fmt, args...)     pr_err("[%s: %u] - " fmt, __func__,  __LINE__, ##args)
 
 
-#define  ALLWINNER_DRIVER_DBG
 #ifdef   ALLWINNER_DRIVER_DBG
 #undef  readl_relaxed
 #undef  writel_relaxed

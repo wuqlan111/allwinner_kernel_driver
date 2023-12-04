@@ -14,7 +14,8 @@
         "type_traits": "c",
         "array": "c",
         "string_view": "c",
-        "cstdlib": "c"
+        "cstdlib": "c",
+        "memory_resource": "c"
     },
 
     "C_Cpp.autocomplete": "default",

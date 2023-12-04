@@ -36,7 +36,7 @@ all:
 	make -C $(KDIR) M=$(PWD) modules  ARCH=$(COMPILE_ARCH) CROSS_COMPILE=$(COMPILE_CROSS)
 
 clean:
-	rm -rf  ./*.mod.c  ./*.o  ./*.order  ./*.symvers  ./*.cmd
+	rm -rf  ./*.mod.c  ./*.mod  ./*.o  ./*.order  ./*.symvers  ./*.cmd
 
 endif
 

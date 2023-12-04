@@ -10,6 +10,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/pm.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/clk-provider.h>
@@ -28,7 +29,7 @@ typedef  struct {
     struct  clk_hw  hw;
     uint32_t  clk_id;
     uint32_t  offset;
-    uint32_t  phy_addr;
+    phys_addr_t  phy_addr;
     uint32_t  *  map_base;
 } allwinner_clk_hw_t;
 
@@ -38,7 +39,52 @@ typedef struct {
 
 static  allwinner_clk_dev_info_t g_clk_info = {0};
 
-static char * allwinner_clk_2_str(const uint32_t clk);
+
+#define  CLK_NAME_MAP(id, clk_name) [id] = clk_name
+
+const static char * clk_name_maps[ALLWINNER_MAX_CLK_ID+2] = {
+    CLK_NAME_MAP(ALLWINNER_PLL_CPUX, "pll_cpux"),
+    CLK_NAME_MAP(ALLWINNER_PLL_DDR0, "pll_ddr0"),
+    CLK_NAME_MAP(ALLWINNER_PLL_PERI0_4X,  "pll_peri0_4x"),
+    CLK_NAME_MAP(ALLWINNER_PLL_PERI0_2X, "pll_peri0_2x"),
+    CLK_NAME_MAP(ALLWINNER_PLL_PERI0_1X, "pll_peri0_1x"),
+    CLK_NAME_MAP(ALLWINNER_PLL_PERI1_4X, "pll_peri1_4x"), 
+    CLK_NAME_MAP(ALLWINNER_PLL_PERI1_2X, "pll_peri1_2x"), 
+    CLK_NAME_MAP(ALLWINNER_PLL_PERI1_1X, "pll_peri1_1x"), 
+
+    CLK_NAME_MAP(ALLWINNER_CLK_PSI_AHB1_AHB2, "clk_psi_ahb1"), 
+    CLK_NAME_MAP(ALLWINNER_CLK_AHB3, "clk_ahb3"), 
+    CLK_NAME_MAP(ALLWINNER_CLK_APB1, "clk_apb1"), 
+    CLK_NAME_MAP(ALLWINNER_CLK_APB2, "clk_apb2"),
+};
+
+
+
+static const char * allwinner_clk_2_str(const uint32_t clk_id)
+{
+    return  clk_id <= ALLWINNER_MAX_CLK_ID ? clk_name_maps[clk_id]: NULL;
+}
+
+static int32_t  allwinner_clk_name_idx(const char * clk_name, uint32_t * clk_id)
+{
+    uint32_t find =  0;
+    for (int32_t i = 0; i < ARRAY_SIZE(clk_name_maps); i++) {
+        if (!clk_name_maps[i]) {
+            continue;
+        }
+
+        if (!strcmp(clk_name, clk_name_maps[i])) {
+            *clk_id = i;
+            find = 1;
+            break;
+        }
+
+    }
+
+    return  find? 0: -1;
+}
+
+
 
 static  int32_t  _allwinner_h6_pll_enable(struct clk_hw * hw)
 {
@@ -332,10 +378,13 @@ static const struct clk_ops pll_clk_ops = {
 static const struct clk_ops normal_clk_ops = {0};
 
 
-const char * pll_peri0_12x_parent[1] = { "pll_peri0_4x" };
-const char * pll_peri1_12x_parent[1] = { "pll_peri1_4x" };
-const char * clk_psi_ahb1_parent[4] = {"osc24", "ccu32k", "rc16m", "pll_peri0_1x"};
-const char * clk_ap1_parent[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+const char * pll_peri0_12x_parents[1] = { "pll_peri0_4x" };
+const char * pll_peri1_12x_parents[1] = { "pll_peri1_4x" };
+const char * clk_psi_ahb1_parents[4] = {"osc24", "ccu32k", "rc16m", "pll_peri0_1x"};
+const char * clk_ahb3_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+const char * clk_apb1_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+const char * clk_apb2_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+
 
 #define CLK_HW_INIT_DATA(name_str, clk_ops,  parent_nr,  parant_name)    {  \
             .name =  name_str,                 \
@@ -344,24 +393,28 @@ const char * clk_ap1_parent[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_
             .parent_names  =  parant_name ,           \
 }
 
-#define _CLK_HW_INIT(clk_id,  name_str, ops,  parent_nr,  parant_name)   [clk_id] =   \
-                            CLK_HW_INIT_DATA(name_str, ops,  parent_nr,  parant_name)
+#define _CLK_HW_INIT_WITH_PARENTS(clk_id, name, ops)   [clk_id] =   \
+                            CLK_HW_INIT_DATA(#name, ops,  \
+                            ARRAY_SIZE(name##_parents),  name##_parents )
 
+#define _CLK_HW_INIT_NO_PARENT(clk_id, name, ops)   [clk_id] =   \
+                            CLK_HW_INIT_DATA(#name, ops,  \
+                            0,  NULL)
 
 #define  CLK_INIT_DATAS     \
-    _CLK_HW_INIT(ALLWINNER_PLL_CPUX, "pll_cpux",  &pll_clk_ops,  0, NULL),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_DDR0, "pll_ddr0",  &pll_clk_ops,  0, NULL),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_PERI0_4X, "pll_peri0_4x",  &pll_clk_ops,  0, NULL),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_PERI0_2X, "pll_peri0_2x",  &pll_clk_ops,  1,  pll_peri0_12x_parent),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_PERI0_1X, "pll_peri0_1x",  &pll_clk_ops,  1,  pll_peri0_12x_parent),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_PERI1_4X, "pll_peri1_4x",  &pll_clk_ops,  0, NULL),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_PERI1_2X, "pll_peri1_2x",  &pll_clk_ops,  1,  pll_peri1_12x_parent ),   \
-    _CLK_HW_INIT(ALLWINNER_PLL_PERI1_1X, "pll_peri1_1x",  &pll_clk_ops,  1,  pll_peri1_12x_parent ),   \
+    _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_CPUX, pll_cpux,  &pll_clk_ops),   \
+    _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_DDR0, pll_ddr0,  &pll_clk_ops),   \
+    _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI0_4X, pll_peri0_4x,  &pll_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI0_2X, pll_peri0_12x,  &pll_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI0_1X, pll_peri0_12x,  &pll_clk_ops),   \
+    _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI1_4X, pll_peri0_4x,  &pll_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI1_2X,  pll_peri1_12x,  &pll_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI1_1X,  pll_peri1_12x,  &pll_clk_ops),   \
                                                                    \
-    _CLK_HW_INIT(ALLWINNER_CLK_PSI_AHB1_AHB2, "clk_psi_ahb1",  &normal_clk_ops,  4, clk_psi_ahb1_parent ),   \
-    _CLK_HW_INIT(ALLWINNER_CLK_AHB3, "clk_ahb3",  &normal_clk_ops,  4,  clk_ap1_parent),   \
-    _CLK_HW_INIT(ALLWINNER_CLK_APB1, "clk_apb1",  &normal_clk_ops,  4,  clk_ap1_parent),   \
-    _CLK_HW_INIT(ALLWINNER_CLK_APB2, "clk_apb2",  &normal_clk_ops,  4,  clk_ap1_parent),
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_PSI_AHB1_AHB2,  clk_psi_ahb1,  &normal_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_AHB3,  clk_ahb3,  &normal_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_APB1,  clk_apb1,  &normal_clk_ops),   \
+    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_APB2,  clk_apb2,  &normal_clk_ops),
 
 
 static struct clk_init_data _pll_normal_clk_init[] = {CLK_INIT_DATAS};
@@ -501,7 +554,7 @@ static  int32_t  allwinner_fix_factor_clk_probe(void)
 }
 
 
-
+#if 0
 static char * allwinner_clk_2_str(const uint32_t clk)
 {
 
@@ -574,7 +627,7 @@ static char * allwinner_clk_2_str(const uint32_t clk)
     return   "invalid allwinner clk";
 
 }
-
+#endif
 
 
 static struct clk * allwinner_of_clk_get(struct of_phandle_args *clkspec, void * data)
@@ -590,41 +643,10 @@ static struct clk * allwinner_of_clk_get(struct of_phandle_args *clkspec, void *
 	return  info->all_clks[idx];
 }
 
-static int32_t  allwinner_clk_probe(struct platform_device * pdev)
+
+static int32_t  allwinner_h6_ccu_init(struct device_node * node, phys_addr_t phy_addr, void * map)
 {
-    int32_t ret =  0;
-    struct  device * dev =  &pdev->dev;
-    struct  device_node * dev_node  =  dev->of_node;
-
-    _PRINTF_DBG("probe for pdev [ %s ]\n", pdev->name);
-
-    uint32_t  phy_addr =  0;
-
-    if (dev_node) {
-        if (of_property_read_u32(dev_node, "addr", &phy_addr)) {
-            _PRINTF_ERROR("read clk base addr failed\n");
-            return -EINVAL;            
-        }
-    } else {
-        struct resource * res = platform_get_resource_byname( pdev, IORESOURCE_MEM, 
-                                    DEVICE_PHY_ADDR_RESOURCE );
-        if (!res) {
-            _PRINTF_ERROR("get platform resource failed!");
-            return  -EINVAL;
-        } else {
-            _PRINTF_DBG("phy_addr:\t%#llx -- %#llx\n", res->start, res->end);
-            phy_addr  =   res->start;
-        }
-    }
-
-    uint32_t  * map = devm_ioremap(dev,  phy_addr,   ALLWINNER_CCU_MAP_SIZE);
-    if (map == NULL) {
-        _PRINTF_ERROR("map ccu phy addr to kernel failed!\n");
-		return  -EINVAL;
-    } else {
-        _PRINTF_DBG("map phy_addr %#x to virt 0x%p\n",   phy_addr,  map );
-    }
-
+    int32_t  ret  =  0;
     ret  =  allwinner_fix_rate_clk_probe();
     if (ret) {
         return  ret;
@@ -655,18 +677,58 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
         g_clk_info.all_clks[allwinner_clks[i].clk_id] =  hw;
     }
 
-    ret  =  of_clk_add_provider(dev_node, allwinner_of_clk_get, &g_clk_info);
+    ret  =  of_clk_add_provider(node, allwinner_of_clk_get, &g_clk_info);
+    if (ret) {
+        _PRINTF_ERROR("of_clk_add_provider failed! ret=%d", ret);
+    }
+
 	return   ret;
 
 }
 
 
-static int32_t allwinner_clk_remove(struct platform_device * pdev)
+
+#ifdef ALLWINNER_CLK_TEST
+
+static int32_t  allwinner_clk_probe(struct platform_device * pdev)
 {
-    int32_t  ret  =  0;
+    int32_t ret =  0;
+    struct  device * dev =  &pdev->dev;
+    struct  device_node * dev_node  =  dev->of_node;
 
+    _PRINTF_DBG("probe for pdev [ %s ]\n", pdev->name);
 
-	return  ret;
+    phys_addr_t  phy_addr =  0;
+	struct resource res = {0}, *tmp_res = NULL;
+    if (dev_node) {
+        if (of_address_to_resource(dev_node, 0, &res)) {
+            _PRINTF_ERROR("read clk base addr failed\n");
+            return -EINVAL;            
+        }
+        tmp_res = &res;
+    } else {
+        tmp_res = platform_get_resource_byname( pdev, IORESOURCE_MEM, 
+                                    DEVICE_PHY_ADDR_RESOURCE );
+        if (!tmp_res) {
+            _PRINTF_ERROR("get platform resource failed!");
+        }
+    }
+
+    _PRINTF_DBG("phy_addr:\t%#llx -- %#llx\n", res->start, res->end);
+    phy_addr  =   tmp_res->start;
+
+    void  * map = devm_ioremap(tmp_res->start,  resource_size(tmp_res));
+    if (!map) {
+        _PRINTF_ERROR("map ccu phy addr to kernel failed!\n");
+		return  -EINVAL;
+    } else {
+        _PRINTF_DBG("map phy_addr %#llx to virt 0x%p\n",   phy_addr,  map );
+    }
+
+    ret  =  allwinner_h6_ccu_init(dev_node, phy_addr,  map);
+
+    return  ret;
+
 }
 
 
@@ -713,6 +775,41 @@ static void  __exit  allwinner_clk_exit(void)
 
 module_init(allwinner_clk_init);
 module_exit(allwinner_clk_exit);
+
+#else
+
+
+static void __init of_allwinner_h6_soc_ccu_setup(struct device_node *np)
+{
+
+    phys_addr_t  phy_addr =  0;
+    struct resource res = {0};
+
+    if (of_address_to_resource(np, 0, &res)) {
+        _PRINTF_ERROR("read clk base addr failed\n");
+        return;            
+    }
+
+    phy_addr  = res.start;
+
+    void  * map = of_iomap(np,  0);
+    if (map == NULL) {
+        _PRINTF_ERROR("map ccu phy addr to kernel failed!\n");
+		return;
+    } else {
+        _PRINTF_DBG("map phy_addr %#llx to virt 0x%p\n",   phy_addr,  map );
+    }
+
+    allwinner_h6_ccu_init(np, phy_addr,  map);
+
+}
+
+
+CLK_OF_DECLARE(allwinner_h6_soc_ccu, "allwinner,H6-v200-ccu", 
+                    of_allwinner_h6_soc_ccu_setup);
+
+
+#endif
 
 MODULE_DESCRIPTION("allwinner's soc clk driver");
 MODULE_LICENSE("GPL v2");
