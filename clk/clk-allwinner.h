@@ -85,6 +85,7 @@
 #define  ALLWINNER_H6_PLLX_LOCK                BIT(28)
 #define  ALLWINNER_H6_PLLX_FACTOR_N            GENMASK(15,   8)
 
+#define  ALLWINNER_H6_CLK_ENABLE        BIT(31)
 
 #define  ALLWINNER_CCU_MAP_SIZE        (0x1000u)
 

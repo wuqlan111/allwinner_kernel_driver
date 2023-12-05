@@ -375,8 +375,117 @@ static const struct clk_ops pll_clk_ops = {
     .set_rate  =  _allwinner_h6_pll_set_rate,
 };
 
-static const struct clk_ops normal_clk_ops = {0};
 
+static  int32_t  __allwinner_h6_clk_enable_or_disable(struct clk_hw * hw, uint32_t enable)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    _PRINTF_DBG("enbale pll_clk [%s],\toffset = %#x\n", __clk_get_name(hw->clk), reg_offset);
+
+    uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+
+    switch (clk_hw->clk_id)
+    {
+        case  ALLWINNER_CLK_PSI_AHB1_AHB2:
+        case  ALLWINNER_CLK_AHB3:
+        case  ALLWINNER_CLK_APB1:
+        case  ALLWINNER_CLK_APB2:
+            return -ENOTSUPP;
+
+    }
+
+    if (enable) {
+        flag |=  ALLWINNER_H6_CLK_ENABLE;        
+    } else {
+        flag &=  ~ALLWINNER_H6_CLK_ENABLE;   
+    }
+    writel_relaxed(flag,  &clk_hw->map_base[reg_offset]);
+
+    return   0;
+}
+
+static  int32_t  _allwinner_h6_clk_enable(struct clk_hw * hw)
+{
+    return  __allwinner_h6_clk_enable_or_disable(hw, 1);
+}
+
+static  int32_t  _allwinner_h6_clk_disable(struct clk_hw * hw)
+{
+    return  __allwinner_h6_clk_enable_or_disable(hw, 0);
+}
+
+static  int32_t  _allwinner_h6_clk_is_enabled(struct clk_hw * hw)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    _PRINTF_DBG("enbale pll_clk [%s],\toffset = %#x\n", __clk_get_name(hw->clk), reg_offset);
+
+    uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+
+    switch (clk_hw->clk_id)
+    {
+        case  ALLWINNER_CLK_PSI_AHB1_AHB2:
+        case  ALLWINNER_CLK_AHB3:
+        case  ALLWINNER_CLK_APB1:
+        case  ALLWINNER_CLK_APB2:
+            return 1;
+
+    }
+
+    return   flag & ALLWINNER_H6_CLK_ENABLE ? 1: 0;
+}
+
+
+static  unsigned long _allwinner_h6_clk_recalc_rate(struct clk_hw *hw, 
+                unsigned long parent_rate)
+{
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+
+    _PRINTF_DBG("enbale pll_clk [%s],\toffset = %#x\n", __clk_get_name(hw->clk), reg_offset);
+
+    uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+    uint32_t factor_n = 0, factor_m =  0;
+
+    switch (clk_hw->clk_id) {
+        case  ALLWINNER_CLK_PSI_AHB1_AHB2:
+        case  ALLWINNER_CLK_AHB3:
+        case  ALLWINNER_CLK_APB1:
+        case  ALLWINNER_CLK_APB2:
+            factor_n  =  1 << ((flag & GENMASK(9, 8)) >> 8);
+            factor_m  =  (flag & GENMASK(1, 0) ) + 1;
+            break;
+        
+        default:
+            factor_m  = factor_n  =  1;
+    }
+
+    unsigned long factor = factor_m * factor_n;
+    unsigned long ret = parent_rate / factor;
+
+    return  ret;
+
+}
+
+static  long  _allwinner_h6_clk_round_rate(struct clk_hw *hw, unsigned long rate,
+					unsigned long *parent_rate)
+{
+
+
+    return  0;
+}
+
+static const struct clk_ops normal_clk_ops = {
+    .enable  = _allwinner_h6_clk_enable,
+    .disable  = _allwinner_h6_pll_disable,
+    .is_enabled  =  _allwinner_h6_clk_is_enabled,
+    .recalc_rate  =  _allwinner_h6_clk_recalc_rate,
+    .round_rate  = _allwinner_h6_clk_round_rate,
+    // .set_rate  =  _allwinner_h6_pll_set_rate,
+
+};
 
 const char * pll_peri0_12x_parents[1] = { "pll_peri0_4x" };
 const char * pll_peri1_12x_parents[1] = { "pll_peri1_4x" };
@@ -405,11 +514,7 @@ const char * clk_apb2_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_CPUX, pll_cpux,  &pll_clk_ops),   \
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_DDR0, pll_ddr0,  &pll_clk_ops),   \
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI0_4X, pll_peri0_4x,  &pll_clk_ops),   \
-    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI0_2X, pll_peri0_12x,  &pll_clk_ops),   \
-    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI0_1X, pll_peri0_12x,  &pll_clk_ops),   \
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI1_4X, pll_peri0_4x,  &pll_clk_ops),   \
-    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI1_2X,  pll_peri1_12x,  &pll_clk_ops),   \
-    _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_PLL_PERI1_1X,  pll_peri1_12x,  &pll_clk_ops),   \
                                                                    \
     _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_PSI_AHB1_AHB2,  clk_psi_ahb1,  &normal_clk_ops),   \
     _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_AHB3,  clk_ahb3,  &normal_clk_ops),   \
@@ -687,7 +792,7 @@ static int32_t  allwinner_h6_ccu_init(struct device_node * node, phys_addr_t phy
 }
 
 
-
+#define  ALLWINNER_CLK_TEST
 #ifdef ALLWINNER_CLK_TEST
 
 static int32_t  allwinner_clk_probe(struct platform_device * pdev)
@@ -714,10 +819,10 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
         }
     }
 
-    _PRINTF_DBG("phy_addr:\t%#llx -- %#llx\n", res->start, res->end);
+    _PRINTF_DBG("phy_addr:\t%#llx -- %#llx\n", tmp_res->start, tmp_res->end);
     phy_addr  =   tmp_res->start;
 
-    void  * map = devm_ioremap(tmp_res->start,  resource_size(tmp_res));
+    void  * map = devm_ioremap(dev, tmp_res->start,  resource_size(tmp_res));
     if (!map) {
         _PRINTF_ERROR("map ccu phy addr to kernel failed!\n");
 		return  -EINVAL;
@@ -740,7 +845,7 @@ static struct of_device_id allwinner_clk_ids[] =  {
 
 struct  platform_driver  allwinner_clk_driver = {
     .probe   =  allwinner_clk_probe,
-    .remove	 =  allwinner_clk_remove,
+    // .remove	 =  allwinner_clk_remove,
     .driver  =  {
         .name  =  "allwinner_ccu_driver",
         .of_match_table  =  allwinner_clk_ids,

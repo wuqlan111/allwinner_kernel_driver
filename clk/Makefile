@@ -3,7 +3,7 @@ CUR_DIR = $(PWD)
 INCLUDE_COMMON := -I$(PWD)/../include/
 ccflags-y := -std=gnu99 -Wno-declaration-after-statement  $(INCLUDE_COMMON)
 
-SPECIAL_KDIR =
+SPECIAL_KDIR = /lib/modules/5.10.76-sun50iw6/build/
 DEFAULT_KDIR = /lib/modules/$(shell uname -r)/build/
 KDIR = 
 USE_CROSS_COMPILE =
