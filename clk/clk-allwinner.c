@@ -376,6 +376,118 @@ static const struct clk_ops pll_clk_ops = {
 };
 
 
+enum {
+    ALLWINNER_CLK_N_LOG2 = 0,
+    ALLWINNER_CLK_N_FIXED,
+    ALLWINNER_CLK_N_NORMAL,
+    ALLWINNER_CLK_N_TYPE_MAX = ALLWINNER_CLK_N_NORMAL,
+};
+
+
+static  int32_t  allwinner_clk_get_factor_n(uint32_t clk_id, uint32_t * type, uint32_t * param)
+{
+    switch (clk_id)
+    {
+        case  ALLWINNER_CLK_PSI_AHB1_AHB2:
+        case  ALLWINNER_CLK_AHB3:
+        case  ALLWINNER_CLK_APB1:
+        case  ALLWINNER_CLK_APB2:
+        case  ALLWINNER_CLK_SMHC0:
+        case  ALLWINNER_CLK_SMHC1:
+        case  ALLWINNER_CLK_SMHC2:
+        case  ALLWINNER_CLK_SPI0:
+        case  ALLWINNER_CLK_SPI1:
+            *type = ALLWINNER_CLK_N_LOG2;
+            *param = 2;
+            break;
+    
+        case  ALLWINNER_CLK_MBUS:
+            *type = ALLWINNER_CLK_N_FIXED;
+            *param = 1;
+            break;
+
+        default:
+            return -EINVAL;
+
+    }
+
+    return  0;
+
+}
+
+
+static  int32_t  allwinner_clk_get_factor_m(uint32_t clk_id, uint32_t * width)
+{
+    switch (clk_id)
+    {
+        case  ALLWINNER_CLK_PSI_AHB1_AHB2:
+        case  ALLWINNER_CLK_AHB3:
+        case  ALLWINNER_CLK_APB1:
+        case  ALLWINNER_CLK_APB2:
+            *width = 2;
+            break;
+
+        case  ALLWINNER_CLK_NAND0:
+        case  ALLWINNER_CLK_NAND1:
+        case  ALLWINNER_CLK_SMHC0:
+        case  ALLWINNER_CLK_SMHC1:
+        case  ALLWINNER_CLK_SMHC2:
+        case  ALLWINNER_CLK_SPI0:
+        case  ALLWINNER_CLK_SPI1:
+            *width = 4;
+            break;
+    
+        case  ALLWINNER_CLK_MBUS:
+            *width = 3;
+            break;
+
+        default:
+            return -EINVAL;
+
+    }
+
+    return  0;
+
+}
+
+static  int32_t  allwinner_clk_get_src_select_mask(uint32_t clk_id, uint32_t * width)
+{
+    switch (clk_id)
+    {
+        case  ALLWINNER_CLK_PSI_AHB1_AHB2:
+        case  ALLWINNER_CLK_AHB3:
+        case  ALLWINNER_CLK_APB1:
+        case  ALLWINNER_CLK_APB2:
+        case  ALLWINNER_CLK_SMHC0:
+        case  ALLWINNER_CLK_SMHC1:
+        case  ALLWINNER_CLK_SMHC2:
+
+            *width = 2;
+            break;
+
+        case  ALLWINNER_CLK_NAND0:
+        case  ALLWINNER_CLK_NAND1:
+        case  ALLWINNER_CLK_SPI0:
+        case  ALLWINNER_CLK_SPI1:
+            *width = 4;
+            break;
+    
+        case  ALLWINNER_CLK_MBUS:
+            *width = 3;
+            break;
+
+        default:
+            return -EINVAL;
+
+    }
+
+    return  0;
+
+}
+
+
+
+
 static  int32_t  __allwinner_h6_clk_enable_or_disable(struct clk_hw * hw, uint32_t enable)
 {
     allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
@@ -472,10 +584,153 @@ static  unsigned long _allwinner_h6_clk_recalc_rate(struct clk_hw *hw,
 static  long  _allwinner_h6_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 					unsigned long *parent_rate)
 {
+    // uint64_t  src_rate[ALLWINNER_CLK_SRC_MAX] = {0};
+    // uint32_t  src_rate_count = 0;
+
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+    const uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+
+    uint32_t  src_select_width = 0;
+    if (allwinner_clk_get_src_select_mask(clk_hw->clk_id, &src_select_width)) {
+        return -EINVAL;
+    }
+    const uint32_t src_index = (flag >> 24) & GENMASK(src_select_width -1, 0);
+    if (src_index >= clk_hw_get_num_parents(hw)) {
+        _PRINTF_ERROR("src_index [%u] invalid", src_index);
+        return -EINVAL;
+    }
+
+    struct clk_hw * parent_clk = clk_hw_get_parent_by_index(hw, src_index);
+    if (!parent_clk) {
+        _PRINTF_ERROR("get parent clk %s by idx [%u] of clk %s",
+                        clk_hw->hw.init->parent_names[src_index]?clk_hw->hw.init->parent_names[src_index]:
+                        "null", src_index, clk_hw_get_name(hw));
+        return  -EINVAL;
+    }
+
+    const unsigned long src_rate = clk_hw_get_rate(parent_clk);
+    uint32_t  factorn_type, factorn_param, factorm_width;
+
+    if (allwinner_clk_get_factor_n(clk_hw->clk_id, &factorn_type, &factorn_param)) {
+        return  -EINVAL;
+    }
+    if (allwinner_clk_get_factor_m(clk_hw->clk_id, &factorm_width)) {
+        return  -EINVAL;
+    }
+
+    long best_rate =  0;
+    unsigned long rate_delta = rate;
+    for (uint32_t tmp_m = 0; tmp_m < BIT(factorm_width); tmp_m++) {
+        uint32_t tmp_n_max = 0, tmp_n_min = 0;
+        if (factorn_type == ALLWINNER_CLK_N_FIXED) {
+            tmp_n_min = factorn_param;
+            tmp_n_max = factorn_param+1;
+        } else {
+            tmp_n_min = 0;
+            tmp_n_max  =  BIT(factorn_param);
+        }
+
+
+        for (uint32_t tmp_n = tmp_n_min;  tmp_n < tmp_n_max; tmp_n++) {
+
+            uint32_t  tmp_factor_n = 0;
+            if (factorn_type == ALLWINNER_CLK_N_FIXED) {
+                tmp_factor_n = tmp_n;
+            } else if ( factorn_type == ALLWINNER_CLK_N_NORMAL) {
+                tmp_factor_n = tmp_n + 1;
+            } else {
+                tmp_factor_n = BIT(tmp_n);
+            }
+
+            uint64_t tmp_factor =  (tmp_m + 1 ) * tmp_factor_n;
+            uint64_t tmp_rate = src_rate / tmp_factor;
+
+            unsigned long tmp_delta = tmp_rate > rate? tmp_rate - rate: rate - tmp_rate;
+            if (tmp_delta < rate_delta) {
+                rate_delta  =  tmp_delta;
+                best_rate = tmp_rate;
+            }
+
+            if (tmp_delta == 0) {
+                break;
+            }
+
+        }
+
+        if (rate_delta == 0) {
+            break;
+        }
+    }
+
+    *parent_rate  =  src_rate;
+
+    return  best_rate;
+}
+
+
+static int32_t _allwinner_h6_clk_set_parent(struct clk_hw *hw, uint8_t index)
+{
+    int32_t  ret  =  0;
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+    uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+
+    uint32_t  src_select_width = 0;
+    if (allwinner_clk_get_src_select_mask(clk_hw->clk_id, &src_select_width)) {
+        return -EINVAL;
+    }
+
+    if (index >= clk_hw_get_num_parents(hw)) {
+        _PRINTF_ERROR("src_index [%u] invalid", index);
+        ret = -EINVAL;
+    } 
+
+    const uint32_t mask = GENMASK(23+src_select_width,  24);
+    flag &= ~mask;
+    flag |=  ((index << 24) & mask);
+
+    writel_relaxed(flag,  &clk_hw->map_base[reg_offset]);
+    return  0;
+
+}
+
+
+static uint8_t	 _allwinner_h6_clk_get_parent(struct clk_hw *hw)
+{
+    int32_t  ret  =  0;
+    allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
+    uint32_t  reg_offset  =  clk_hw->offset >> 2;
+    const uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+
+    uint32_t  src_select_width = 0;
+    if (allwinner_clk_get_src_select_mask(clk_hw->clk_id, &src_select_width)) {
+        return -EINVAL;
+    }
+
+    const uint32_t src_index = (flag >> 24) & GENMASK(src_select_width -1, 0);
+    if (src_index >= clk_hw_get_num_parents(hw)) {
+        _PRINTF_ERROR("src_index [%u] invalid", src_index);
+        ret = -EINVAL;
+    } else {
+        ret = src_index;
+    }
+
+    return  ret;
+
+}
+
+
+static	int32_t  _allwinner_h6_clk_set_rate(struct clk_hw *hw, unsigned long rate,
+				    unsigned long parent_rate)
+{
+    
 
 
     return  0;
+
 }
+
 
 static const struct clk_ops normal_clk_ops = {
     .enable  = _allwinner_h6_clk_enable,
@@ -483,7 +738,9 @@ static const struct clk_ops normal_clk_ops = {
     .is_enabled  =  _allwinner_h6_clk_is_enabled,
     .recalc_rate  =  _allwinner_h6_clk_recalc_rate,
     .round_rate  = _allwinner_h6_clk_round_rate,
-    // .set_rate  =  _allwinner_h6_pll_set_rate,
+    .set_parent =  _allwinner_h6_clk_set_parent,
+	.get_parent =  _allwinner_h6_clk_get_parent,
+    .set_rate  =  _allwinner_h6_clk_set_rate,
 
 };
 

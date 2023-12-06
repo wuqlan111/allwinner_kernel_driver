@@ -5,6 +5,7 @@
 
 #define  ALLWINNER_CLK_REG_INVALID           (0xffffffu)
 
+#define  ALLWINNER_CLK_SRC_MAX               (6u)
 
 // pll clk
 #define  ALLWINNER_PLL_CPUX         0

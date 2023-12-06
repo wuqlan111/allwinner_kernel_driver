@@ -15,7 +15,8 @@
         "array": "c",
         "string_view": "c",
         "cstdlib": "c",
-        "memory_resource": "c"
+        "memory_resource": "c",
+        "random": "c"
     },
 
     "C_Cpp.autocomplete": "default",
