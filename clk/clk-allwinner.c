@@ -724,7 +724,7 @@ static uint8_t	 _allwinner_h6_clk_get_parent(struct clk_hw *hw)
 static	int32_t  _allwinner_h6_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 				    unsigned long parent_rate)
 {
-    
+
 
 
     return  0;
@@ -902,13 +902,67 @@ static  int32_t  allwinner_fix_factor_clk_probe(void)
         hw  =  clk_register_fixed_factor(dev,  allwinner_fix_factor_clock_init[i].name, 
                             allwinner_fix_factor_clock_init[i].parent, allwinner_fix_factor_clock_init[i].flags,
                             allwinner_fix_factor_clock_init[i].mult, allwinner_fix_factor_clock_init->div);
-        dev_set_name(dev,  allwinner_fix_factor_clock_init[i].name);
+        // dev_set_name(dev,  allwinner_fix_factor_clock_init[i].name);
         if ( IS_ERR(hw) ) {
             _PRINTF_ERROR("register fix factor clk %s failed! ret = %ld\n",  allwinner_fix_factor_clock_init[i].name,
                                                     PTR_ERR(hw));
             return  PTR_ERR(hw);
         }
         g_clk_info.all_clks[allwinner_fix_factor_clock_init[i].clk_id] = hw;
+    }
+
+    return  0;
+
+}
+
+typedef struct {
+    char * name;
+    char * parent;
+    uint32_t  clk_id;
+    uint32_t  offset;
+    uint32_t  shift;
+    uint32_t  flags;
+} allwinner_gate_clk_t;
+
+#define  GATE_CLK_DATA(clk_name, clk_parent, id,  off, pos, flag)    {   \
+    .name  =  clk_name,                \
+    .parent  =  clk_parent,             \
+    .clk_id = id,                       \
+    .offset  =  off,                   \
+    .shift  =  pos,             \
+    .flags  =  flag,              \
+}
+
+#define  ALLWINNER_GATE_FLAG              (CLK_SET_RATE_NO_REPARENT )
+const static allwinner_gate_clk_t allwinner_gate_clock_init[] = {
+        GATE_CLK_DATA("uart0",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+                            0x90c,   0,   ALLWINNER_GATE_FLAG),
+        GATE_CLK_DATA("uart1",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+                            0x90c,   1,   ALLWINNER_GATE_FLAG),
+        GATE_CLK_DATA("uart2",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+                            0x90c,   2,   ALLWINNER_GATE_FLAG),
+        GATE_CLK_DATA("uart3",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+                            0x90c,   3,   ALLWINNER_GATE_FLAG),
+};
+
+static  int32_t  allwinner_gate_clk_probe(void * map_base)
+{
+    struct device * dev  = NULL;
+    struct clk * hw = NULL;
+    const uint32_t size  =  ARRAY_SIZE(allwinner_gate_clock_init);
+
+    for (uint32_t i =  0; i < size; i++) {
+
+        hw  =  clk_register_gate(dev,  allwinner_gate_clock_init[i].name, 
+                            allwinner_gate_clock_init[i].parent, allwinner_gate_clock_init[i].flags,
+                            (allwinner_gate_clock_init[i].offset >> 2) + map_base, allwinner_gate_clock_init[i].shift,
+                            0, NULL);
+        if ( IS_ERR(hw) ) {
+            _PRINTF_ERROR("register gate clk %s failed! ret = %ld\n",  allwinner_gate_clock_init[i].name,
+                                                    PTR_ERR(hw));
+            return  PTR_ERR(hw);
+        }
+        g_clk_info.all_clks[allwinner_gate_clock_init[i].clk_id] = hw;
     }
 
     return  0;
@@ -1017,6 +1071,11 @@ static int32_t  allwinner_h6_ccu_init(struct device_node * node, phys_addr_t phy
     ret  =  allwinner_fix_factor_clk_probe();
     if (ret) {
         return  ret;
+    }
+
+    ret  =  allwinner_gate_clk_probe(map);
+    if (ret) {
+        return ret;
     }
 
     uint32_t size  = ARRAY_SIZE(allwinner_clks);
