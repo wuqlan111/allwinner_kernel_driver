@@ -21,8 +21,8 @@
 
 #include "dbg_log.h"
 
-#define  ALLWINNER_CCU_MAP_SIZE        (0x1000u)
-#define  ALLWINNER_CCU_BASE_ADDR       (0xc0000u)
+#define  ALLWINNER_CCU_MAP_SIZE        (0x2000u)
+#define  ALLWINNER_CCU_BASE_ADDR       (0x03001000u)
 
 
 static uint32_t  request_clk_id = 0;
@@ -112,12 +112,12 @@ const static struct attribute_group * clk_dev_test_groups[] = {
 
 
 static struct resource  dev_res[]  =  {
-    {
-        .name  = DEVICE_PHY_ADDR_RESOURCE,
-        .flags =  IORESOURCE_MEM,
-        .start = ALLWINNER_CCU_BASE_ADDR, 
-        .end = ALLWINNER_CCU_BASE_ADDR + ALLWINNER_CCU_MAP_SIZE,
-    },
+    // {
+    //     .name  = DEVICE_PHY_ADDR_RESOURCE,
+    //     .flags =  IORESOURCE_MEM,
+    //     .start = ALLWINNER_CCU_BASE_ADDR, 
+    //     .end = ALLWINNER_CCU_BASE_ADDR + ALLWINNER_CCU_MAP_SIZE,
+    // },
 
 };
 
@@ -131,8 +131,8 @@ static void allwinner_clk_dev_release(struct device * dev)
 static struct platform_device  allwinner_clk_dev =  {
     .name  =  "allwinner_ccu_driver",
     .id  =  PLATFORM_DEVID_NONE,
-    .resource  =  dev_res,
-    .num_resources  =  ARRAY_SIZE(dev_res),
+    // .resource  =  dev_res,
+    .num_resources  =  0,
     .dev  =  { 
         .release  = allwinner_clk_dev_release,
     },
@@ -155,7 +155,8 @@ static int32_t  __init  allwinner_clk_dev_init(void)
 
     ret = device_add_groups(dev, clk_dev_test_groups);
     if (ret) {
-        _PRINTF_ERROR("add device attribute failed!\n");
+        _PRINTF_ERROR("add device attribute failed! ret = %d\n", ret);
+        platform_device_unregister(&allwinner_clk_dev);
     }
 
     return  ret;

@@ -771,7 +771,7 @@ const char * clk_apb2_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_CPUX, pll_cpux,  &pll_clk_ops),   \
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_DDR0, pll_ddr0,  &pll_clk_ops),   \
     _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI0_4X, pll_peri0_4x,  &pll_clk_ops),   \
-    _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI1_4X, pll_peri0_4x,  &pll_clk_ops),   \
+    _CLK_HW_INIT_NO_PARENT(ALLWINNER_PLL_PERI1_4X, pll_peri1_4x,  &pll_clk_ops),   \
                                                                    \
     _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_PSI_AHB1_AHB2,  clk_psi_ahb1,  &normal_clk_ops),   \
     _CLK_HW_INIT_WITH_PARENTS(ALLWINNER_CLK_AHB3,  clk_ahb3,  &normal_clk_ops),   \
@@ -782,7 +782,7 @@ const char * clk_apb2_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri
 static struct clk_init_data _pll_normal_clk_init[] = {CLK_INIT_DATAS};
 
 
-#define  ALLWINNER_CLK_HW(clk, reg)    [clk] = {   \
+#define  ALLWINNER_CLK_HW(clk, reg)   {   \
     .hw.init = &_pll_normal_clk_init[clk],    \
     .clk_id  =  clk,                    \
     .offset  =  reg,            \
@@ -792,15 +792,8 @@ static struct clk_init_data _pll_normal_clk_init[] = {CLK_INIT_DATAS};
     ALLWINNER_CLK_HW(ALLWINNER_PLL_CPUX,  0),            \
     ALLWINNER_CLK_HW(ALLWINNER_PLL_DDR0,  0x10),            \
     ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI0_4X,  0x20),            \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI0_2X,  0x20),           \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI0_1X,  0x20),            \
-                                                               \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI0_4X,  0x20),            \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI0_2X,  0x20),            \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI0_1X,  0x20),            \
     ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI1_4X,  0x28),            \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI1_2X,  0x28),            \
-    ALLWINNER_CLK_HW(ALLWINNER_PLL_PERI1_1X,  0x28),            \
+                                                               \
                                                                \
     ALLWINNER_CLK_HW(ALLWINNER_CLK_PSI_AHB1_AHB2,  0x510),            \
     ALLWINNER_CLK_HW(ALLWINNER_CLK_AHB3,  0x51c),            \
@@ -1068,6 +1061,28 @@ static int32_t  allwinner_h6_ccu_init(struct device_node * node, phys_addr_t phy
         return  ret;
     }
 
+    uint32_t size  = ARRAY_SIZE(allwinner_clks);
+    for ( uint32_t i =  0; i < size; i++) {
+        struct  clk * hw = NULL;
+
+        if ( !allwinner_clks[i].hw.init ) {
+            continue;
+        }
+
+        allwinner_clks[i].phy_addr  =  phy_addr;
+        allwinner_clks[i].map_base  =  map;
+
+        _PRINTF_DBG("clk_name=%s,\tclk_id=%u\n", allwinner_clks[i].hw.init->name, 
+                                                    allwinner_clks[i].clk_id);
+		hw = clk_register(NULL, &allwinner_clks[i].hw);
+		if (IS_ERR(hw)) {
+            ret  =  PTR_ERR(hw);
+            _PRINTF_ERROR("register clk_hw %s failed! ret = %d\n", allwinner_clks[i].hw.init->name,  ret);
+			return ret;
+        }
+        g_clk_info.all_clks[allwinner_clks[i].clk_id] =  hw;
+    }
+
     ret  =  allwinner_fix_factor_clk_probe();
     if (ret) {
         return  ret;
@@ -1076,26 +1091,6 @@ static int32_t  allwinner_h6_ccu_init(struct device_node * node, phys_addr_t phy
     ret  =  allwinner_gate_clk_probe(map);
     if (ret) {
         return ret;
-    }
-
-    uint32_t size  = ARRAY_SIZE(allwinner_clks);
-    for ( uint32_t i =  0; i < size; i++) {
-        struct  clk * hw = NULL;
-
-        if ( !allwinner_clks[i].hw.init->ops || (allwinner_clks[i].clk_id != i) ) {
-            continue;
-        }
-
-        allwinner_clks[i].phy_addr  =  phy_addr;
-        allwinner_clks[i].map_base  =  map;
-
-		hw = clk_register(NULL, &allwinner_clks[i].hw);
-		if (IS_ERR(hw)) {
-            ret  =  PTR_ERR(hw);
-            _PRINTF_ERROR("register clk_hw %s failed! ret = %d\n", allwinner_clk_2_str(i),  ret);
-			return ret;
-        }
-        g_clk_info.all_clks[allwinner_clks[i].clk_id] =  hw;
     }
 
     ret  =  of_clk_add_provider(node, allwinner_of_clk_get, &g_clk_info);
@@ -1121,6 +1116,8 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
 
     phys_addr_t  phy_addr =  0;
 	struct resource res = {0}, *tmp_res = NULL;
+
+    #if 0
     if (dev_node) {
         if (of_address_to_resource(dev_node, 0, &res)) {
             _PRINTF_ERROR("read clk base addr failed\n");
@@ -1134,7 +1131,12 @@ static int32_t  allwinner_clk_probe(struct platform_device * pdev)
             _PRINTF_ERROR("get platform resource failed!");
         }
     }
+    #endif
 
+    tmp_res = &res;
+    tmp_res->start = 0x03001000;
+    tmp_res->end  = tmp_res->start + ALLWINNER_CCU_MAP_SIZE;
+    
     _PRINTF_DBG("phy_addr:\t%#llx -- %#llx\n", tmp_res->start, tmp_res->end);
     phy_addr  =   tmp_res->start;
 
