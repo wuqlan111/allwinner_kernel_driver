@@ -71,7 +71,7 @@
 #define  ALLWINNER_CLK_UART2                     58
 #define  ALLWINNER_CLK_UART3                     59
 
-#define  ALLWINNER_FIXED_EXTERN_32K               ALLWINNER_CLK_UART3
+#define  ALLWINNER_FIXED_EXTERN_32K               60
 #define  ALLWINNER_FIXED_RC_16M                   (ALLWINNER_FIXED_EXTERN_32K + 1)
 #define  ALLWINNER_FIXED_DCXO                     (ALLWINNER_FIXED_EXTERN_32K + 2)
 

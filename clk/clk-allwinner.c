@@ -56,6 +56,10 @@ const static char * clk_name_maps[ALLWINNER_MAX_CLK_ID+2] = {
     CLK_NAME_MAP(ALLWINNER_CLK_AHB3, "clk_ahb3"), 
     CLK_NAME_MAP(ALLWINNER_CLK_APB1, "clk_apb1"), 
     CLK_NAME_MAP(ALLWINNER_CLK_APB2, "clk_apb2"),
+
+    CLK_NAME_MAP(ALLWINNER_FIXED_EXTERN_32K, "fixed_ccu32k"),
+    CLK_NAME_MAP(ALLWINNER_FIXED_RC_16M, "fixed_rc16m"),
+    CLK_NAME_MAP(ALLWINNER_FIXED_DCXO, "fixed_osc24m"),
 };
 
 
@@ -407,9 +411,12 @@ static  int32_t  allwinner_clk_get_factor_n(uint32_t clk_id, uint32_t * type, ui
             break;
 
         default:
+            _PRINTF_ERROR("clk_id [%u] invalid!\n", clk_id);
             return -EINVAL;
 
     }
+
+    _PRINTF_DBG("clk_id=%u,\ttype=%u,\tparam=%u\n",  clk_id, *type, *param);
 
     return  0;
 
@@ -442,9 +449,12 @@ static  int32_t  allwinner_clk_get_factor_m(uint32_t clk_id, uint32_t * width)
             break;
 
         default:
+            _PRINTF_ERROR("clk_id [%u] invalid!\n", clk_id);
             return -EINVAL;
 
     }
+
+    _PRINTF_DBG("clk_id=%u,\twidth=%u\n", clk_id, *width);
 
     return  0;
 
@@ -477,9 +487,12 @@ static  int32_t  allwinner_clk_get_src_select_mask(uint32_t clk_id, uint32_t * w
             break;
 
         default:
+            _PRINTF_ERROR("clk_id [%u] invalid!\n", clk_id);
             return -EINVAL;
 
     }
+
+    _PRINTF_DBG("clk_id=%u,\twidth=%u\n",  clk_id, *width);
 
     return  0;
 
@@ -532,9 +545,10 @@ static  int32_t  _allwinner_h6_clk_is_enabled(struct clk_hw * hw)
     allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
     uint32_t  reg_offset  =  clk_hw->offset >> 2;
 
-    _PRINTF_DBG("enbale pll_clk [%s],\toffset = %#x\n", __clk_get_name(hw->clk), reg_offset);
-
     uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
+
+    _PRINTF_DBG("clk_name=%s,\tclk_id=%u,\toffset = %#x,\tflag=%#x\n", __clk_get_name(hw->clk), 
+                clk_hw->clk_id,  reg_offset, flag);
 
     switch (clk_hw->clk_id)
     {
@@ -556,10 +570,11 @@ static  unsigned long _allwinner_h6_clk_recalc_rate(struct clk_hw *hw,
     allwinner_clk_hw_t * clk_hw  = container_of(hw, allwinner_clk_hw_t, hw);
     uint32_t  reg_offset  =  clk_hw->offset >> 2;
 
-    _PRINTF_DBG("enbale pll_clk [%s],\toffset = %#x\n", __clk_get_name(hw->clk), reg_offset);
-
     uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
     uint32_t factor_n = 0, factor_m =  0;
+
+    _PRINTF_DBG("clk_name=%s,\tclk_id=%u,\toffset = %#x,\tflag=%#x\n", __clk_get_name(hw->clk), 
+            clk_hw->clk_id,  reg_offset, flag);
 
     switch (clk_hw->clk_id) {
         case  ALLWINNER_CLK_PSI_AHB1_AHB2:
@@ -577,6 +592,9 @@ static  unsigned long _allwinner_h6_clk_recalc_rate(struct clk_hw *hw,
     unsigned long factor = factor_m * factor_n;
     unsigned long ret = parent_rate / factor;
 
+    _PRINTF_DBG("factor_m=%u,\tfactor_n=%u,\tparent_rate=%lu,\tret=%lu\n", factor_m,
+                            factor_n, parent_rate,  ret);
+
     return  ret;
 
 }
@@ -591,19 +609,22 @@ static  long  _allwinner_h6_clk_round_rate(struct clk_hw *hw, unsigned long rate
     uint32_t  reg_offset  =  clk_hw->offset >> 2;
     const uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
 
+    _PRINTF_DBG("clk_name=%s,\tclk_id=%u,\toffset = %#x,\tflag=%#x\n", __clk_get_name(hw->clk), 
+            clk_hw->clk_id,  reg_offset, flag);
+
     uint32_t  src_select_width = 0;
     if (allwinner_clk_get_src_select_mask(clk_hw->clk_id, &src_select_width)) {
         return -EINVAL;
     }
     const uint32_t src_index = (flag >> 24) & GENMASK(src_select_width -1, 0);
     if (src_index >= clk_hw_get_num_parents(hw)) {
-        _PRINTF_ERROR("src_index [%u] invalid", src_index);
+        _PRINTF_ERROR("src_index [%u] invalid\n", src_index);
         return -EINVAL;
     }
 
     struct clk_hw * parent_clk = clk_hw_get_parent_by_index(hw, src_index);
     if (!parent_clk) {
-        _PRINTF_ERROR("get parent clk %s by idx [%u] of clk %s",
+        _PRINTF_ERROR("get parent clk %s by idx [%u] of clk %s\n",
                         clk_hw->hw.init->parent_names[src_index]?clk_hw->hw.init->parent_names[src_index]:
                         "null", src_index, clk_hw_get_name(hw));
         return  -EINVAL;
@@ -676,13 +697,16 @@ static int32_t _allwinner_h6_clk_set_parent(struct clk_hw *hw, uint8_t index)
     uint32_t  reg_offset  =  clk_hw->offset >> 2;
     uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
 
+    _PRINTF_DBG("clk_name=%s,\tclk_id=%u,\toffset = %#x,\tflag=%#x\n", __clk_get_name(hw->clk), 
+            clk_hw->clk_id,  reg_offset, flag);
+
     uint32_t  src_select_width = 0;
     if (allwinner_clk_get_src_select_mask(clk_hw->clk_id, &src_select_width)) {
         return -EINVAL;
     }
 
     if (index >= clk_hw_get_num_parents(hw)) {
-        _PRINTF_ERROR("src_index [%u] invalid", index);
+        _PRINTF_ERROR("src_index [%u] invalid\n", index);
         ret = -EINVAL;
     } 
 
@@ -690,6 +714,7 @@ static int32_t _allwinner_h6_clk_set_parent(struct clk_hw *hw, uint8_t index)
     flag &= ~mask;
     flag |=  ((index << 24) & mask);
 
+    _PRINTF_DBG("src_index=%u,\tflag=%#x\n", index, flag);
     writel_relaxed(flag,  &clk_hw->map_base[reg_offset]);
     return  0;
 
@@ -703,6 +728,9 @@ static uint8_t	 _allwinner_h6_clk_get_parent(struct clk_hw *hw)
     uint32_t  reg_offset  =  clk_hw->offset >> 2;
     const uint32_t  flag = readl_relaxed(&clk_hw->map_base[reg_offset]);
 
+    _PRINTF_DBG("clk_name=%s,\tclk_id=%u,\toffset = %#x,\tflag=%#x\n", __clk_get_name(hw->clk), 
+            clk_hw->clk_id,  reg_offset, flag);
+
     uint32_t  src_select_width = 0;
     if (allwinner_clk_get_src_select_mask(clk_hw->clk_id, &src_select_width)) {
         return -EINVAL;
@@ -710,11 +738,13 @@ static uint8_t	 _allwinner_h6_clk_get_parent(struct clk_hw *hw)
 
     const uint32_t src_index = (flag >> 24) & GENMASK(src_select_width -1, 0);
     if (src_index >= clk_hw_get_num_parents(hw)) {
-        _PRINTF_ERROR("src_index [%u] invalid", src_index);
+        _PRINTF_ERROR("src_index [%u] invalid\n", src_index);
         ret = -EINVAL;
     } else {
         ret = src_index;
     }
+
+    _PRINTF_DBG("src_index=%u\n", src_index);
 
     return  ret;
 
@@ -746,10 +776,10 @@ static const struct clk_ops normal_clk_ops = {
 
 const char * pll_peri0_12x_parents[1] = { "pll_peri0_4x" };
 const char * pll_peri1_12x_parents[1] = { "pll_peri1_4x" };
-const char * clk_psi_ahb1_parents[4] = {"osc24", "ccu32k", "rc16m", "pll_peri0_1x"};
-const char * clk_ahb3_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
-const char * clk_apb1_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
-const char * clk_apb2_parents[4] = {"osc24", "ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+const char * clk_psi_ahb1_parents[4] = {"fixed_osc24m", "fixed_ccu32k", "fixed_rc16m", "pll_peri0_1x"};
+const char * clk_ahb3_parents[4] = {"fixed_osc24m", "fixed_ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+const char * clk_apb1_parents[4] = {"fixed_osc24m", "fixed_ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
+const char * clk_apb2_parents[4] = {"fixed_osc24m", "fixed_ccu32k", "clk_psi_ahb1", "pll_peri0_1x"};
 
 
 #define CLK_HW_INIT_DATA(name_str, clk_ops,  parent_nr,  parant_name)    {  \
@@ -822,9 +852,9 @@ typedef struct {
 
 #define  ALLWINNER_FIX_RATE_FLAG              (CLK_IGNORE_UNUSED | CLK_SET_RATE_NO_REPARENT | CLK_IS_CRITICAL )
 const static allwinner_fix_clk_t allwinner_fix_clock_init[] = {
-    FIX_CLK_DATA("extern_32k",  NULL,  ALLWINNER_FIXED_EXTERN_32K,  32768,  ALLWINNER_FIX_RATE_FLAG),
-    FIX_CLK_DATA("RC_16M",  NULL, ALLWINNER_FIXED_RC_16M, 16000000,  ALLWINNER_FIX_RATE_FLAG),
-    FIX_CLK_DATA("RXCO_24M",  NULL, ALLWINNER_FIXED_DCXO,  24000000,  ALLWINNER_FIX_RATE_FLAG),
+    FIX_CLK_DATA("fixed_ccu32k",  NULL,  ALLWINNER_FIXED_EXTERN_32K,  32768,  ALLWINNER_FIX_RATE_FLAG),
+    FIX_CLK_DATA("fixed_rc16m",  NULL, ALLWINNER_FIXED_RC_16M, 16000000,  ALLWINNER_FIX_RATE_FLAG),
+    FIX_CLK_DATA("fixed_osc24m",  NULL, ALLWINNER_FIXED_DCXO,  24000000,  ALLWINNER_FIX_RATE_FLAG),
 };
 
 
@@ -894,7 +924,7 @@ static  int32_t  allwinner_fix_factor_clk_probe(void)
 
         hw  =  clk_register_fixed_factor(dev,  allwinner_fix_factor_clock_init[i].name, 
                             allwinner_fix_factor_clock_init[i].parent, allwinner_fix_factor_clock_init[i].flags,
-                            allwinner_fix_factor_clock_init[i].mult, allwinner_fix_factor_clock_init->div);
+                            allwinner_fix_factor_clock_init[i].mult, allwinner_fix_factor_clock_init[i].div);
         // dev_set_name(dev,  allwinner_fix_factor_clock_init[i].name);
         if ( IS_ERR(hw) ) {
             _PRINTF_ERROR("register fix factor clk %s failed! ret = %ld\n",  allwinner_fix_factor_clock_init[i].name,
@@ -928,13 +958,13 @@ typedef struct {
 
 #define  ALLWINNER_GATE_FLAG              (CLK_SET_RATE_NO_REPARENT )
 const static allwinner_gate_clk_t allwinner_gate_clock_init[] = {
-        GATE_CLK_DATA("uart0",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+        GATE_CLK_DATA("gate_uart0",  "clk_apb2",  ALLWINNER_CLK_UART0,  
                             0x90c,   0,   ALLWINNER_GATE_FLAG),
-        GATE_CLK_DATA("uart1",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+        GATE_CLK_DATA("gate_uart1",  "clk_apb2",  ALLWINNER_CLK_UART0,  
                             0x90c,   1,   ALLWINNER_GATE_FLAG),
-        GATE_CLK_DATA("uart2",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+        GATE_CLK_DATA("gate_uart2",  "clk_apb2",  ALLWINNER_CLK_UART0,  
                             0x90c,   2,   ALLWINNER_GATE_FLAG),
-        GATE_CLK_DATA("uart3",  "clk_apb2",  ALLWINNER_CLK_UART0,  
+        GATE_CLK_DATA("gate_uart3",  "clk_apb2",  ALLWINNER_CLK_UART0,  
                             0x90c,   3,   ALLWINNER_GATE_FLAG),
 };
 
