@@ -21,7 +21,7 @@
     },
 
     "C_Cpp.autocomplete": "default",
-    "editor.wordBasedSuggestions": true,
+    "editor.wordBasedSuggestions": "matchingDocuments",
     "editor.wordBasedSuggestionsMode": "allDocuments",
     "C_Cpp.errorSquiggles": "enabled"
 
