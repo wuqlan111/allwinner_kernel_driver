@@ -64,10 +64,10 @@ typedef enum {
 
 
 #define  PINCTRL_BANK_MAX_PIN       32
-#define  PINCTRL_PIN_NUMBER(bank, offset)         (  ((bank) << 8) | (offset) )
+#define  PINCTRL_PIN_NUMBER(bank, offset)         (  ((bank) << 5) | (offset) )
 #define  ALLWINNER_PIN_NUMBER(bank, offset)        PINCTRL_PIN_NUMBER(ALLWINNER_BANK_##bank, offset) 
-#define  PIN_NUMBER_BANK(pin)               (((pin) >> 8) & 0xff)
-#define  PIN_NUMBER_OFFSET(pin)             ((pin) & 0xff)
+#define  PIN_NUMBER_BANK(pin)               (((pin) >> 5) & 0xf)
+#define  PIN_NUMBER_OFFSET(pin)             ((pin) & 0x1f)
 
 
 

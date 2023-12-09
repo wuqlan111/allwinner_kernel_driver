@@ -62,7 +62,7 @@ typedef  struct {
     .pins  =  ALLWINNER_BANK_##bank_id##_PINS,         \
 }
 
-static  allwinner_pin_bank_t allwinner_h6_bank_info[]  = {
+const static allwinner_pin_bank_t allwinner_h6_bank_info[]  = {
     ALLWINNER_BANK_INIT(PC),
     ALLWINNER_BANK_INIT(PD),
     ALLWINNER_BANK_INIT(PF),
@@ -233,6 +233,28 @@ static allwinner_pin_group_t allwinner_h6_groups[] = {
 };
 
 
+static char * pull_type_2_str(uint32_t pull_type)
+{
+    const char * ret =  0;
+    switch (pull_type) {
+        case  ALLWINNER_H6_GPIO_PUPD_NO:
+            ret = "disable";
+            break;
+        case  ALLWINNER_H6_GPIO_PUPD_UP:
+            ret = "pull_up";
+            break;
+        case  ALLWINNER_H6_GPIO_PUPD_DOWN:
+            ret = "pull_down";
+            break;
+        default:
+            ret = "invalid";
+            break;
+    }
+
+    return  ret;
+}
+
+
 static int32_t allwinner_get_groups_count(struct pinctrl_dev *pctldev)
 {
     allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
@@ -244,9 +266,11 @@ static allwinner_h6_pin_config_t * allwinner_get_pin_config_register(void * base
     uint32_t * base_addr = bank < ALLWINNER_BANK_PL? base: r_base;
     uint32_t  cfg_offset = bank < ALLWINNER_BANK_PL? bank: bank - ALLWINNER_BANK_PL;
 
-    allwinner_h6_pin_config_t * regs =  (allwinner_h6_pin_config_t *)&base_addr[(cfg_offset * PINCTRL_CFG_STEP) >> 2 ];
+    allwinner_h6_pin_config_t * regs =  (allwinner_h6_pin_config_t *)(base_addr+ ((cfg_offset * PINCTRL_CFG_STEP) >> 2 ));
 
-    return regs;
+    _PRINTF_DBG("base=%p,\tr_base=%p,\tbank=%d,\tregs=%p\n", base, r_base, bank, regs);
+
+    return  regs;
 }
 
 static  int32_t allwinner_set_pin_af(allwinner_h6_pin_config_t * regs, uint32_t offset, uint32_t af_func)
@@ -285,6 +309,8 @@ static  int32_t allwinner_get_pin_af(allwinner_h6_pin_config_t * regs, uint32_t 
 
     uint32_t flag = readl_relaxed(&regs->cfgx[reg_idx]);
     *af_func  =  (flag >> shift) & ALLWINNNER_H6_PIN_AF_MASK;
+
+    _PRINTF_DBG("regs=%p,\toffset=%u,\tflag=%#x\n",  regs, offset,  flag);
 
     return  0;
 }
@@ -327,6 +353,8 @@ static  int32_t allwinner_get_pin_pull_type(allwinner_h6_pin_config_t * regs, ui
 
     uint32_t flag = readl_relaxed(&regs->pullx[reg_idx]);
     *pull_type  = (flag >> shift) & ALLWINNNER_H6_PIN_PULL_MASK;
+
+    _PRINTF_DBG("regs=%p,\toffset=%u,\tflag=%#x\n",  regs, offset,  flag);
 
     return  0;
 
@@ -604,7 +632,7 @@ static int32_t  allwinner_pinconf_get(struct pinctrl_dev *pctldev,
 {
     allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
     const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
-    const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
+    const  uint32_t  offset  = PIN_NUMBER_OFFSET(pin_id);
 
     allwinner_h6_pin_config_t * regs = allwinner_get_pin_config_register(pinctrl->pinctrl_membase, 
                             pinctrl->pinctrl_r_membase, bank);
@@ -628,7 +656,7 @@ static int32_t allwinner_pinconf_set(struct pinctrl_dev *pctldev, uint32_t pin_i
 {
     allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
     const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
-    const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
+    const  uint32_t  offset  = PIN_NUMBER_OFFSET(pin_id);
 
     allwinner_h6_pin_config_t * regs =  allwinner_get_pin_config_register(pinctrl->pinctrl_membase, 
                             pinctrl->pinctrl_r_membase, bank);
@@ -649,7 +677,7 @@ static void allwinner_pinconf_dbg_show(struct pinctrl_dev *pctldev,
 
     allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
     const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
-    const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
+    const  uint32_t  offset  = PIN_NUMBER_OFFSET(pin_id);
 
     allwinner_h6_pin_config_t * regs =  allwinner_get_pin_config_register(pinctrl->pinctrl_membase, 
                             pinctrl->pinctrl_r_membase, bank);
@@ -667,7 +695,8 @@ static void allwinner_pinconf_dbg_show(struct pinctrl_dev *pctldev,
         sprintf(func_str, "AF_FUNC%u",  function);
     }
 
-    seq_printf(s, "[PU:%ld]\t%s\n", ALLWINNER_PINCONF_UNPACK_PULL(config),  func_str);
+    uint32_t pull_type = ALLWINNER_PINCONF_UNPACK_PULL(config);
+    seq_printf(s, "[PU:%s]\t%s\n", pull_type_2_str(pull_type),  func_str);
 
 }
 
@@ -682,15 +711,22 @@ static const struct pinconf_ops allwinner_pinconf_ops = {
 #endif
 };
 
-
+static  allwinner_pinctrl_platform_data_t h6_v200_platdata;
 static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
 {
     int32_t ret =  0;
     struct  device * dev =  &pdev->dev;
     // struct  device_node * dev_node  =  dev->of_node;
 
-    const allwinner_pinctrl_platform_data_t * const match_data = device_get_match_data(dev);
+    // const allwinner_pinctrl_platform_data_t * const match_data = device_get_match_data(dev);
+    const allwinner_pinctrl_platform_data_t * const match_data = &h6_v200_platdata;
+    if (!match_data) {
+        _PRINTF_ERROR("probe invalid device!\n");
+        return -EINVAL;
+    }
 
+    _PRINTF_DBG("bank_info_number=%u,\tgroup_number=%u,\tfunction_number=%u\n",
+                    match_data->number, match_data->ngroups, match_data->nfunctions);
     struct pinctrl_pin_desc * pin_descs =  devm_kzalloc(dev,  
                 sizeof(struct pinctrl_pin_desc) * match_data->pins,  GFP_KERNEL);
     allwinner_pinctrl_desc_t * pinctrl_desc = devm_kzalloc(dev, 
@@ -706,7 +742,7 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
 
         for (uint32_t j = 0; j < bank_info->pins; j++) {
             char tmp_name[64] = {0};
-            sprintf(tmp_name, "%s-%u", bank_info->bank_name, j);
+            sprintf(tmp_name, "%s%u", bank_info->bank_name, j);
             pin_descs[pin_number].name = devm_kstrdup_const(dev,  tmp_name,  GFP_KERNEL);
             pin_descs[pin_number].number  =  PINCTRL_PIN_NUMBER(bank_info->bank, j);
             pin_number++;
@@ -723,6 +759,7 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
         match_data->groups[i].pins_conf  =  devm_kzalloc(dev, sizeof(allwinner_pmx_pin_t) * grp_pins,
                                                 GFP_KERNEL );
         if (!match_data->groups[i].pins_conf) {
+            _PRINTF_ERROR("alloc memory failed!");
             return -ENOMEM;
         }
     }
@@ -737,18 +774,30 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
     pinctrl_desc->pinctrl_membase  =  devm_ioremap(dev, PINCTRL_PHY_ADDR_BASE,  ALLWINNER_PINCTRL_MAP_SIZE);
     pinctrl_desc->pinctrl_r_membase  =  devm_ioremap(dev, PINCTRL_R_PHY_ADDR_BASE,  ALLWINNER_PINCTRL_MAP_SIZE);
 
+    if (!pinctrl_desc->pinctrl_membase || !pinctrl_desc->pinctrl_r_membase) {
+        _PRINTF_ERROR("ioremap failed!\n");
+        return  -EINVAL;
+    }
+
+    _PRINTF_DBG("phy_addr=%#x,\tvirt=%p\n", PINCTRL_PHY_ADDR_BASE, pinctrl_desc->pinctrl_membase);
+    _PRINTF_DBG("phy_addr=%#x,\tvirt=%p\n", PINCTRL_R_PHY_ADDR_BASE, pinctrl_desc->pinctrl_r_membase);
+
     pinctrl_desc->pindev.owner  = THIS_MODULE;
-    pinctrl_desc->pindev.name  = "allwinner-pinctrl";
-    pinctrl_desc->pindev.npins = match_data->number;
+    pinctrl_desc->pindev.name  = dev_name(dev);
+    pinctrl_desc->pindev.npins = match_data->pins;
     pinctrl_desc->pindev.pins = pin_descs;
 
     pinctrl_desc->pindev.confops  = &allwinner_pinconf_ops;
     pinctrl_desc->pindev.pctlops  = &allwinner_pctrl_ops;
     pinctrl_desc->pindev.pmxops  = &allwinner_pmx_ops;
 
-    ret =  devm_pinctrl_register_and_init(dev,  &pinctrl_desc->pindev,  pinctrl_desc, &pinctrl_desc->pctl);
-    if (ret) {
+    pinctrl_desc->pctl =  devm_pinctrl_register(dev,  &pinctrl_desc->pindev,  
+                                        pinctrl_desc);
+    if (IS_ERR(pinctrl_desc->pctl)) {
+        ret  =  PTR_ERR(pinctrl_desc->pctl);
         _PRINTF_ERROR("register pinctrl dev failed! ret = %d\n", ret);
+    } else {
+        _PRINTF_DBG("register pinctrl dev successful!\n");
     }
 
     platform_set_drvdata(pdev, pinctrl_desc);
@@ -761,21 +810,21 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
 static int32_t allwinner_pinctrl_remove(struct platform_device * pdev)
 {
     struct  device * dev =  &pdev->dev;
-    struct pinctrl_dev * pinctrl = platform_get_drvdata(pdev);
+    allwinner_pinctrl_desc_t * pinctrl = platform_get_drvdata(pdev);
 
-    devm_pinctrl_unregister(dev, pinctrl);
+    devm_pinctrl_unregister(dev, pinctrl->pctl);
 
 	return  0;
 }
 
-const static  allwinner_pinctrl_platform_data_t h6_v200_platdata = {
+static  allwinner_pinctrl_platform_data_t h6_v200_platdata = {
     .number = ARRAY_SIZE(allwinner_h6_bank_info), 
     .bank_info  =  allwinner_h6_bank_info,
     .pins  =  93,
     .functions  =  allwinner_h6_functions,
     .nfunctions  =  ARRAY_SIZE(allwinner_h6_functions),
     .groups  =  allwinner_h6_groups,
-    .nfunctions  =  ARRAY_SIZE(allwinner_h6_groups),
+    .ngroups  =  ARRAY_SIZE(allwinner_h6_groups),
 };
 
 static struct of_device_id allwinner_pinctrl_ids[] =  {
