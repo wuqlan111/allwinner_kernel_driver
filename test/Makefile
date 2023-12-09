@@ -17,7 +17,7 @@ ifneq ($(USE_CROSS_COMPILE), )
 COMPILE_CROSS = aarch64-none-linux-gnu-
 endif
 ifneq ($(KERNELRELEASE),)
-obj-m += clk-allwinner-dev.o
+obj-m += clk-allwinner-dev.o  pinctrl-allwinner-dev.o  
 else
 
 ifneq ($(SPECIAL_KDIR),)

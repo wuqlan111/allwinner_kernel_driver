@@ -111,17 +111,6 @@ const static struct attribute_group * clk_dev_test_groups[] = {
 };
 
 
-static struct resource  dev_res[]  =  {
-    // {
-    //     .name  = DEVICE_PHY_ADDR_RESOURCE,
-    //     .flags =  IORESOURCE_MEM,
-    //     .start = ALLWINNER_CCU_BASE_ADDR, 
-    //     .end = ALLWINNER_CCU_BASE_ADDR + ALLWINNER_CCU_MAP_SIZE,
-    // },
-
-};
-
-
 static void allwinner_clk_dev_release(struct device * dev)
 {
     _PRINTF_INFO("release dev -- %s\n", dev_name(dev));
@@ -131,7 +120,6 @@ static void allwinner_clk_dev_release(struct device * dev)
 static struct platform_device  allwinner_clk_dev =  {
     .name  =  "allwinner_ccu_driver",
     .id  =  PLATFORM_DEVID_NONE,
-    // .resource  =  dev_res,
     .num_resources  =  0,
     .dev  =  { 
         .release  = allwinner_clk_dev_release,

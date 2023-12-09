@@ -17,7 +17,18 @@
         "cstdlib": "c",
         "memory_resource": "c",
         "random": "c",
-        "algorithm": "c"
+        "algorithm": "c",
+        "atomic": "c",
+        "*.tcc": "c",
+        "cstdio": "c",
+        "cwchar": "c",
+        "vector": "c",
+        "tuple": "c",
+        "fstream": "c",
+        "initializer_list": "c",
+        "stdexcept": "c",
+        "system_error": "c",
+        "utility": "c"
     },
 
     "C_Cpp.autocomplete": "default",

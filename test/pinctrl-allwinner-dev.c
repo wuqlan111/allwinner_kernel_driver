@@ -24,17 +24,6 @@
 
 
 
-static struct resource  dev_res[]  =  {
-    // {
-    //     .name  = DEVICE_PHY_ADDR_RESOURCE,
-    //     .flags =  IORESOURCE_MEM,
-    //     .start = ALLWINNER_CCU_BASE_ADDR, 
-    //     .end = ALLWINNER_CCU_BASE_ADDR + ALLWINNER_CCU_MAP_SIZE,
-    // },
-
-};
-
-
 static void allwinner_pinctrl_dev_release(struct device * dev)
 {
     _PRINTF_INFO("release dev -- %s\n", dev_name(dev));
@@ -44,7 +33,6 @@ static void allwinner_pinctrl_dev_release(struct device * dev)
 static struct platform_device  allwinner_pinctrl_dev =  {
     .name  =  "allwinner_pinctrl_driver",
     .id  =  PLATFORM_DEVID_NONE,
-    // .resource  =  dev_res,
     .num_resources  =  0,
     .dev  =  { 
         .release  = allwinner_pinctrl_dev_release,
@@ -60,16 +48,16 @@ static int32_t  __init  allwinner_pinctrl_dev_init(void)
 
     ret = platform_device_register(&allwinner_pinctrl_dev);
     if (ret) {
-        _PRINTF_ERROR("register clk dev failed! ret = %d\n", ret);
+        _PRINTF_ERROR("register pinctrl dev failed! ret = %d\n", ret);
         return  ret;
     } else {
-        _PRINTF_INFO("register allwinner clk dev success!\n");
+        _PRINTF_INFO("register allwinner pinctrl dev success!\n");
     }
 
     // ret = device_add_groups(dev, clk_dev_test_groups);
     if (ret) {
         _PRINTF_ERROR("add device attribute failed! ret = %d\n", ret);
-        platform_device_unregister(&allwinner_clk_dev);
+        platform_device_unregister(&allwinner_pinctrl_dev);
     }
 
     return  ret;
@@ -79,14 +67,14 @@ static int32_t  __init  allwinner_pinctrl_dev_init(void)
 
 static void  __exit  allwinner_pinctrl_dev_exit(void)
 {
-    platform_device_unregister(&allwinner_clk_dev);
+    platform_device_unregister(&allwinner_pinctrl_dev);
     _PRINTF_INFO("allwinner pinctrl dev remove!\n");
 
 }
 
 
-module_init(allwinner_clk_dev_init);
-module_exit(allwinner_clk_dev_exit);
+module_init(allwinner_pinctrl_dev_init);
+module_exit(allwinner_pinctrl_dev_exit);
 
 MODULE_DESCRIPTION("allwinner's soc pinctrl device");
 MODULE_LICENSE("GPL v2");

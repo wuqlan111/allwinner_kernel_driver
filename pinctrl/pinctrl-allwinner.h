@@ -52,7 +52,14 @@ typedef enum {
 #define  ALLWINNNER_H6_PIN_PULL_SHIFT(offset)    (((offset) & 0xf) << 1)
 #define  ALLWINNNER_H6_PIN_PULL_MASK              GENMASK(1, 0)
 
+#define  ALLWINNER_PINCTRL_MAP_SIZE           (0x400u)
 
+
+#define  PINCTRL_BANK_MAX_PIN       32
+#define  PINCTRL_PIN_NUMBER(bank, offset)         (  ((bank) << 8) | (offset) )
+#define  ALLWINNER_PIN_NUMBER(bank, offset)        PINCTRL_PIN_NUMBER(ALLWINNER_BANK_##bank, offset) 
+#define  PIN_NUMBER_BANK(pin)               (((pin) >> 8) & 0xff)
+#define  PIN_NUMBER_OFFSET(pin)             ((pin) & 0xff)
 
 
 
