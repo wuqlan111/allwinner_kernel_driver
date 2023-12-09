@@ -51,7 +51,7 @@ typedef struct {
 } allwinner_h6_gpio_plat_t;
 
 
-static inline allwinner_h6_gpio_plat_t * allwinner_irq_data_get_plat(struct irq_data *d)
+static allwinner_h6_gpio_plat_t * allwinner_irq_data_get_plat(struct irq_data *d)
 {
 	struct gpio_chip *chip = irq_data_get_irq_chip_data(d);
 	return gpiochip_get_data(chip);
@@ -535,25 +535,27 @@ static int32_t allwinner_gpio_chip_init(allwinner_h6_gpio_plat_t * gpio_data, st
     irq_base = devm_irq_alloc_descs(gpio_data->gpio_chip.parent,
 					-1, 0, gpio_data->gpio_chip.ngpio, 0);
 	if (irq_base < 0) {
-		_PRINTF_ERROR("Couldn't allocate IRQ numbers\n");
+		_PRINTF_ERROR("allocate irq numbers failed\n");
 		return -ENODEV;
 	}
+
+    _PRINTF_DBG("irq_base=%u,\tcnt=%u\n", irq_base, gpio_data->gpio_chip.ngpio);
 
 	ret = gpiochip_irqchip_add(&gpio_data->gpio_chip, irqc, irq_base, handle_bad_irq,
 				   IRQ_TYPE_NONE);
 	if (ret) {
-		_PRINTF_ERROR("Couldn't add irqchip to gpiochip!\n");
-		gpiochip_remove(&gpio_data->gpio_chip);
+		_PRINTF_ERROR("add irqchip to gpiochip failed!\n");
 		return -ENODEV;
 	}
 
 	ret = gpiochip_add_data(&gpio_data->gpio_chip,  gpio_data);
 	if (ret) {
 		_PRINTF_ERROR("allwinner register gpio driver failed!\n");
+        gpiochip_remove(&gpio_data->gpio_chip);   
 		return  ret;
 	}
 
-    // gpiochip_set_chained_irqchip(&gpio_data->gpio_chip, irqc, gpio_data->hw_irq, NULL);
+    gpiochip_set_nested_irqchip(&gpio_data->gpio_chip, irqc, gpio_data->hw_irq);
 
 	ret = devm_request_irq(gpio_data->gpio_chip.parent, gpio_data->hw_irq,
 			       NULL,
@@ -567,31 +569,10 @@ static int32_t allwinner_gpio_chip_init(allwinner_h6_gpio_plat_t * gpio_data, st
 }
 
 
-
-static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
+static int32_t allwinner_gpio_dt_probe( struct device * dev, allwinner_h6_gpio_plat_t * gpio_data)
 {
-    int32_t ret =  0;
-    struct device * dev  =  &pdev->dev;
+    int32_t  ret =  0;
     struct device_node *  dev_node  = dev_of_node(dev);
-    if (!dev_node) {
-        _PRINTF_ERROR("dev_node is null\n");
-        return  -EINVAL;
-    }
-
-    allwinner_h6_gpio_plat_t * gpio_data  =  devm_kzalloc(dev, sizeof(allwinner_h6_gpio_plat_t), 
-                                            GFP_KERNEL);
-    if (!gpio_data) {
-        _PRINTF_ERROR("kmalloc gpio data failed!\n");
-        return  -ENOMEM;
-    }
-    memset(gpio_data,  0,   sizeof(allwinner_h6_gpio_plat_t));
-
-    struct irq_chip * irqc  = devm_kzalloc(dev, sizeof(struct irq_chip), GFP_KERNEL);
-    if (!irqc) {
-        _PRINTF_ERROR("alloc irq chip failed!\n");
-        return -ENOMEM;
-    }
-    memset(irqc,  0,  sizeof(struct irq_chip));
 
     uint32_t  config_base,  int_base, irq_hw, ngpios;
     if ( of_property_read_u32_index(dev_node, "addr", 0, &config_base) ) {
@@ -618,18 +599,126 @@ static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
     }
 
     gpio_data->config_base  =  devm_ioremap(dev, config_base,  sizeof(allwinner_h6_gpio_config_t));
+    if (!gpio_data->config_base) {
+        _PRINTF_ERROR("map config_base failed!\n");
+        return -EINVAL;
+    }
+
+    _PRINTF_DBG("config_base=%#x,\tvirt=%p\n", config_base, gpio_data->config_base);
     
     if (gpio_data->has_interrupt) {
-        gpio_data->config_base  =  devm_ioremap(dev,  int_base,  sizeof(allwinner_h6_gpio_interrupt_t));
+        gpio_data->interrupt_base  =  devm_ioremap(dev,  int_base,  sizeof(allwinner_h6_gpio_interrupt_t));
+
+        if (gpio_data->has_interrupt && !gpio_data->interrupt_base) {
+            _PRINTF_ERROR("map interrupt_base failed!\n");
+            ret  = -EINVAL;
+        }     
     }
+
+    
+    gpio_data->hw_irq  =  irq_hw;
+    gpio_data->gpio_chip.base  =  irq_hw;
+    gpio_data->gpio_chip.ngpio  =  ngpios;
+
+    if (gpio_data->has_interrupt && !ret) {
+        _PRINTF_DBG("interrupt=%#x,\tvirt=%p\n", int_base, gpio_data->interrupt_base);
+    }
+
+    return  ret;
+
+}
+
+#define ALLWINNER_GPIO_TEST
+#ifdef  ALLWINNER_GPIO_TEST
+static int32_t allwinner_gpio_test_probe( struct device * dev, allwinner_h6_gpio_plat_t * gpio_data)
+{
+    int32_t  ret =  0;
+
+    uint32_t  config_base  =  0x07022000;
+    uint32_t  int_base = 0x07022200;
+    uint32_t  irq_hw = 137;
+    uint32_t  ngpios =  11;
+    uint32_t  has_int = 1;
+
+    gpio_data->config_base  =  devm_ioremap(dev, config_base,  sizeof(allwinner_h6_gpio_config_t));
+    if (!gpio_data->config_base) {
+        _PRINTF_ERROR("map config_base failed!\n");
+        return -EINVAL;
+    }
+
+    _PRINTF_DBG("config_base=%#x,\tvirt=%p\n", config_base, gpio_data->config_base);
+    
+    if (gpio_data->has_interrupt) {
+        gpio_data->interrupt_base  =  devm_ioremap(dev,  int_base,  sizeof(allwinner_h6_gpio_interrupt_t));
+
+        if (gpio_data->has_interrupt && !gpio_data->interrupt_base) {
+            _PRINTF_ERROR("map interrupt_base failed!\n");
+            ret  = -EINVAL;
+        }     
+    }
+    
+    gpio_data->hw_irq  =  irq_hw;
+    gpio_data->gpio_chip.base  =  irq_hw;
+    gpio_data->gpio_chip.ngpio  =  ngpios;
+
+    if (gpio_data->has_interrupt && !ret) {
+        _PRINTF_DBG("interrupt=%#x,\tvirt=%p\n", int_base, gpio_data->interrupt_base);
+    }
+
+    return  ret;
+
+
+}
+
+#endif
+
+static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
+{
+    int32_t ret =  0;
+    struct device * dev  =  &pdev->dev;
+    struct device_node *  dev_node  = dev_of_node(dev);
+
+
+#ifndef  ALLWINNER_GPIO_TEST
+    if (!dev_node) {
+        _PRINTF_ERROR("dev_node is null\n");
+        return  -EINVAL;
+    }
+#endif
+
+    allwinner_h6_gpio_plat_t * gpio_data  =  devm_kzalloc(dev, sizeof(allwinner_h6_gpio_plat_t), 
+                                            GFP_KERNEL);
+    if (!gpio_data) {
+        _PRINTF_ERROR("kmalloc gpio data failed!\n");
+        return  -ENOMEM;
+    }
+    memset(gpio_data,  0,   sizeof(allwinner_h6_gpio_plat_t));
+
+    struct irq_chip * irqc  = devm_kzalloc(dev, sizeof(struct irq_chip), GFP_KERNEL);
+    if (!irqc) {
+        _PRINTF_ERROR("alloc irq chip failed!\n");
+        return -ENOMEM;
+    }
+    memset(irqc,  0,  sizeof(struct irq_chip));
+
+    if (dev_node ) {
+        ret = allwinner_gpio_dt_probe(dev, gpio_data);
+        if (ret) {
+            return ret;            
+        }
+    }
+
+#ifdef  ALLWINNER_GPIO_TEST
+    ret =  allwinner_gpio_test_probe(dev, gpio_data);
+    if (ret) {
+        return  ret;
+    }
+#endif
 
     irqc->name = dev_name(&pdev->dev);
 
-    gpio_data->hw_irq  =  irq_hw;
-    gpio_data->gpio_chip.base  =  irq_hw;
     gpio_data->gpio_chip.parent =  dev;
     gpio_data->gpio_chip.label  =  "allwinner_gpio";
-    gpio_data->gpio_chip.ngpio  =  ngpios;
     gpio_data->gpio_chip.owner  =  THIS_MODULE;
 
     raw_spin_lock_init(&gpio_data->lock);
@@ -644,6 +733,16 @@ static int32_t  allwinner_gpio_probe(struct platform_device * pdev)
 }
 
 
+static int32_t allwinner_gpio_remove(struct platform_device *pdev)
+{
+    allwinner_h6_gpio_plat_t * gpio_data = platform_get_drvdata(pdev);
+
+	gpiochip_remove(&gpio_data->gpio_chip);
+	return 0;
+}
+
+
+
 struct of_device_id allwinner_gpio_ids[] =  {
 	{.compatible = "allwinner,H6-v200-gpio"},
     {}
@@ -652,7 +751,7 @@ struct of_device_id allwinner_gpio_ids[] =  {
 
 struct  platform_driver  allwinner_gpio_driver = {
     .probe   =  allwinner_gpio_probe,
-    .remove  =  NULL,
+    .remove  =  allwinner_gpio_remove,
     .driver  =  {
         .name  =  "allwinner_gpio_driver",
         .of_match_table  =  allwinner_gpio_ids,
