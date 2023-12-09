@@ -29,6 +29,27 @@
 #define PINCTRL_CFG_STEP        (0x24u)
 #define PIN_GROUP_NO_CONFIG_PMX        (0xffffu)
 
+
+
+#define ALLWINNER_PINCONF_UNPACK(conf, param)\
+				(( (conf) >> ALLWINNER_PINCONF_ ##param ##_SHIFT) \
+				& ALLWINNER_PINCONF_ ##param ##_MASK)
+
+#define ALLWINNER_PINCONF_PACK(conf, val, param)	( (conf) |=   \
+				(((val) & ALLWINNER_PINCONF_ ##param ##_MASK) << \
+					ALLWINNER_PINCONF_ ##param ##_SHIFT))
+
+#define  ALLWINNER_PINCONF_PULL_MASK		(0x3u)
+#define  ALLWINNER_PINCONF_PULL_SHIFT		(0u)
+#define  ALLWINNER_PINCONF_UNPACK_PULL(conf)	ALLWINNER_PINCONF_UNPACK(conf, PULL)
+#define  ALLWINNER_PINCONF_PACK_PULL(conf, pull)	 ALLWINNER_PINCONF_PACK(conf, pull, PULL)
+
+#define  ALLWINNER_PINCONF_DRV_MASK		(0x3u)
+#define  ALLWINNER_PINCONF_DRV_SHIFT		(2u)
+#define  ALLWINNER_PINCONF_UNPACK_DRV(conf)	ALLWINNER_PINCONF_UNPACK(conf, DRV)
+#define  ALLWINNER_PINCONF_PACK_DRV(conf, drv)	 ALLWINNER_PINCONF_PACK(conf, drv, DRV)
+
+
 typedef  struct {
     char * bank_name;
     uint32_t  bank;
@@ -240,13 +261,72 @@ static  int32_t allwinner_set_pin_af(allwinner_h6_pin_config_t * regs, uint32_t 
         return -EINVAL;
     }
 
-    uint32_t reg_idx = offset >> 3;
-    uint32_t shift =  (offset & 0x7) << 2;
+    uint32_t reg_idx =  ALLWINNNER_H6_PIN_AF_IDX(offset);
+    uint32_t shift =  ALLWINNNER_H6_PIN_AF_SHIFT(offset);
 
     uint32_t flag = readl_relaxed(&regs->cfgx[reg_idx]);
-    flag &= ~(0xf<<shift);
+    flag &= ~(ALLWINNNER_H6_PIN_AF_MASK<<shift);
     flag |= (af_func << shift);
     writel_relaxed(flag, &regs->cfgx[reg_idx]);
+
+    return  0;
+
+}
+
+static  int32_t allwinner_get_pin_af(allwinner_h6_pin_config_t * regs, uint32_t offset, uint32_t * af_func)
+{
+    if (offset >= PINCTRL_BANK_MAX_PIN) {
+        _PRINTF_ERROR("bank pin offset %u invalid!\n", offset);
+        return -EINVAL;
+    }
+
+    uint32_t reg_idx =  ALLWINNNER_H6_PIN_AF_IDX(offset);
+    uint32_t shift =  ALLWINNNER_H6_PIN_AF_SHIFT(offset);
+
+    uint32_t flag = readl_relaxed(&regs->cfgx[reg_idx]);
+    *af_func  =  (flag >> shift) & ALLWINNNER_H6_PIN_AF_MASK;
+
+    return  0;
+}
+
+
+static  int32_t allwinner_set_pin_pull_type(allwinner_h6_pin_config_t * regs, uint32_t offset, uint32_t pull_type)
+{
+    if (offset >= PINCTRL_BANK_MAX_PIN) {
+        _PRINTF_ERROR("bank pin offset %u invalid!\n", offset);
+        return -EINVAL;
+    }
+
+    if (pull_type > ALLWINNER_H6_GPIO_MAX) {
+        _PRINTF_ERROR("bank pin pull_type %u invalid!\n", pull_type);
+        return -EINVAL;
+    }
+
+    uint32_t reg_idx = ALLWINNNER_H6_PIN_PULL_IDX(offset);
+    uint32_t shift =  ALLWINNNER_H6_PIN_PULL_SHIFT(offset);
+
+    uint32_t flag = readl_relaxed(&regs->pullx[reg_idx]);
+    flag &= ~(ALLWINNNER_H6_PIN_PULL_MASK<<shift);
+    flag |= (pull_type << shift);
+    writel_relaxed(flag, &regs->pullx[reg_idx]);
+
+    return  0;
+
+}
+
+
+static  int32_t allwinner_get_pin_pull_type(allwinner_h6_pin_config_t * regs, uint32_t offset, uint32_t * pull_type)
+{
+    if (offset >= PINCTRL_BANK_MAX_PIN) {
+        _PRINTF_ERROR("bank pin offset %u invalid!\n", offset);
+        return -EINVAL;
+    }
+
+    uint32_t reg_idx = ALLWINNNER_H6_PIN_PULL_IDX(offset);
+    uint32_t shift =  ALLWINNNER_H6_PIN_PULL_SHIFT(offset);
+
+    uint32_t flag = readl_relaxed(&regs->pullx[reg_idx]);
+    *pull_type  = (flag >> shift) & ALLWINNNER_H6_PIN_PULL_MASK;
 
     return  0;
 
@@ -325,8 +405,9 @@ static  int32_t  allwinner_get_group_pins(struct pinctrl_dev *pctldev, uint32_t 
 
 static void allwinner_pin_dbg_show(struct pinctrl_dev *pctldev, struct seq_file *s,
 			  uint32_t offset)
-{
-
+{    
+    allwinner_pinctrl_desc_t * allwinner_pinctrl = pinctrl_dev_get_drvdata(pctldev);
+	seq_printf(s, "%s", dev_name(allwinner_pinctrl->dev));
 }
 
 static int32_t  allwinner_dt_node_to_map(struct pinctrl_dev *pctldev,
@@ -524,33 +605,18 @@ static int32_t  allwinner_pinconf_get(struct pinctrl_dev *pctldev,
     allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
     const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
     const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
-    enum pin_config_param param = pinconf_to_config_param(*config);
 
-    uint32_t * base_addr = bank < ALLWINNER_BANK_PL? pinctrl->pinctrl_membase:
-                                        pinctrl->pinctrl_r_membase;
-    uint32_t  cfg_offset = bank < ALLWINNER_BANK_PL? bank: bank - ALLWINNER_BANK_PL;
+    allwinner_h6_pin_config_t * regs = allwinner_get_pin_config_register(pinctrl->pinctrl_membase, 
+                            pinctrl->pinctrl_r_membase, bank);
 
-    allwinner_h6_pin_config_t * regs =  (allwinner_h6_pin_config_t *)&base_addr[(cfg_offset * PINCTRL_CFG_STEP) >> 2 ];
+    *config = 0;
 
-    const uint32_t reg_idx = ALLWINNNER_H6_PIN_PULL_IDX(offset);
-    const uint32_t shift = ALLWINNNER_H6_PIN_PULL_SHIFT(offset);
-    const uint32_t pull_type = (readl_relaxed(&regs->pullx[reg_idx]) >> shift) 
-                                & ALLWINNNER_H6_PIN_PULL_MASK;
-    uint32_t args = 0;
-    switch (param) {
-        case  PIN_CONFIG_BIAS_PULL_DOWN:
-            args = pull_type == ALLWINNER_H6_GPIO_PUPD_DOWN? 1: 0;
-            break;
-
-        case  PIN_CONFIG_BIAS_PULL_UP:
-            args = pull_type == ALLWINNER_H6_GPIO_PUPD_UP? 1: 0;
-            break;
-        
-        default:
-            return -ENOTSUPP;
+    uint32_t  pull_type = 0;
+    if (allwinner_get_pin_pull_type(regs, offset, &pull_type)) {
+        return  -1;
     }
 	
-    *config = pinconf_to_config_packed(param, args);
+    ALLWINNER_PINCONF_PACK_PULL(*config, pull_type);
 
     _PRINTF_DBG("pin=%#x,\tconfig=%#lx\n", pin_id, *config);
 
@@ -564,52 +630,54 @@ static int32_t allwinner_pinconf_set(struct pinctrl_dev *pctldev, uint32_t pin_i
     const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
     const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
 
-
-    uint32_t * base_addr = bank < ALLWINNER_BANK_PL? pinctrl->pinctrl_membase:
-                                        pinctrl->pinctrl_r_membase;
-    uint32_t  cfg_offset = bank < ALLWINNER_BANK_PL? bank: bank - ALLWINNER_BANK_PL;
-
-    allwinner_h6_pin_config_t * regs =  (allwinner_h6_pin_config_t *)&base_addr[(cfg_offset * PINCTRL_CFG_STEP) >> 2 ];
-
-    const uint32_t reg_idx = ALLWINNNER_H6_PIN_PULL_IDX(offset);
-    const uint32_t shift = ALLWINNNER_H6_PIN_PULL_SHIFT(offset);
+    allwinner_h6_pin_config_t * regs =  allwinner_get_pin_config_register(pinctrl->pinctrl_membase, 
+                            pinctrl->pinctrl_r_membase, bank);
 
     _PRINTF_DBG("pin_id=%#x,\tconfigs_num=%u\n", pin_id, num_configs);
 
-    for (uint32_t  i  =  0; i < num_configs; i++) {
-        enum pin_config_param param = pinconf_to_config_param(configs[i]);
-        uint32_t args = pinconf_to_config_argument(configs[i]);
-
-        uint32_t pull_type = (readl_relaxed(&regs->pullx[reg_idx]) >> shift) 
-                                & ALLWINNNER_H6_PIN_PULL_MASK;        
-
-        switch (param) {
-            case  PIN_CONFIG_BIAS_PULL_DOWN:
-            case  PIN_CONFIG_BIAS_PULL_UP:
-                pull_type &= ~(ALLWINNNER_H6_PIN_PULL_MASK<<shift);
-                if (param == PIN_CONFIG_BIAS_PULL_DOWN) {
-                    pull_type  |= ALLWINNER_H6_GPIO_PUPD_DOWN << shift; 
-                } else {
-                    pull_type  |= ALLWINNER_H6_GPIO_PUPD_UP << shift;
-                }
-                writel_relaxed(pull_type,  &regs->pullx[reg_idx]);
-                break;
-            
-            default:
-                _PRINTF_ERROR("param [%u] don't support\n", param);
-                return -ENOTSUPP;
-        }
+    for (uint32_t  i  =  0; i < num_configs; i++) {  
+        uint32_t pull_type = ALLWINNER_PINCONF_UNPACK_PULL(configs[i]); 
+        allwinner_set_pin_pull_type(regs, offset, pull_type);
     }
 
     return  0;
 }
+
+static void allwinner_pinconf_dbg_show(struct pinctrl_dev *pctldev,
+				   struct seq_file *s, uint32_t pin_id)
+{
+
+    allwinner_pinctrl_desc_t * pinctrl = pinctrl_dev_get_drvdata(pctldev);
+    const  uint32_t  bank = PIN_NUMBER_BANK(pin_id);
+    const  uint32_t  offset  = PIN_NUMBER_BANK(pin_id);
+
+    allwinner_h6_pin_config_t * regs =  allwinner_get_pin_config_register(pinctrl->pinctrl_membase, 
+                            pinctrl->pinctrl_r_membase, bank);
+
+	unsigned long config = 0;
+	uint32_t function = 0;
+    char func_str[40] = {0};
+
+    allwinner_get_pin_af(regs, offset,  &function);
+    allwinner_pinconf_get(pctldev, pin_id,  &config);
+
+    if ((function == ALLWINNER_H6_GPIO_IN) || (function == ALLWINNER_H6_GPIO_OUT)) {
+        sprintf(func_str, "gpio");
+    } else {
+        sprintf(func_str, "AF_FUNC%u",  function);
+    }
+
+    seq_printf(s, "[PU:%ld]\t%s\n", ALLWINNER_PINCONF_UNPACK_PULL(config),  func_str);
+
+}
+
 
 
 static const struct pinconf_ops allwinner_pinconf_ops = {
 	.pin_config_get = allwinner_pinconf_get,
 	.pin_config_set = allwinner_pinconf_set,
 #ifdef CONFIG_DEBUG_FS
-	// .pin_config_dbg_show = allwinner_pinconf_dbg_show,
+	.pin_config_dbg_show = allwinner_pinconf_dbg_show,
     // .pin_config_group_dbg_show = allwinner_pinconf_group_dbg_show,
 #endif
 };
@@ -659,6 +727,7 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
         }
     }
 
+    pinctrl_desc->dev = dev;
     // pinctrl_dev
     pinctrl_desc->groups = match_data->groups;
     pinctrl_desc->ngroups = match_data->ngroups;
@@ -676,8 +745,6 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
     pinctrl_desc->pindev.confops  = &allwinner_pinconf_ops;
     pinctrl_desc->pindev.pctlops  = &allwinner_pctrl_ops;
     pinctrl_desc->pindev.pmxops  = &allwinner_pmx_ops;
-
-    // struct pinctrl_dev * pinctrl = NULL;
 
     ret =  devm_pinctrl_register_and_init(dev,  &pinctrl_desc->pindev,  pinctrl_desc, &pinctrl_desc->pctl);
     if (ret) {
