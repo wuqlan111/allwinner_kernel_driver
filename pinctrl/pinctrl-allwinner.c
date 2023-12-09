@@ -716,10 +716,10 @@ static int32_t  allwinner_pinctrl_probe(struct platform_device * pdev)
 {
     int32_t ret =  0;
     struct  device * dev =  &pdev->dev;
-    // struct  device_node * dev_node  =  dev->of_node;
+    struct  device_node * dev_node  =  dev->of_node;
 
-    // const allwinner_pinctrl_platform_data_t * const match_data = device_get_match_data(dev);
-    const allwinner_pinctrl_platform_data_t * const match_data = &h6_v200_platdata;
+    const allwinner_pinctrl_platform_data_t * const match_data = device_get_match_data(dev);
+    // const allwinner_pinctrl_platform_data_t * const match_data = &h6_v200_platdata;
     if (!match_data) {
         _PRINTF_ERROR("probe invalid device!\n");
         return -EINVAL;
